@@ -1,7 +1,6 @@
 import csv
 import logging
 import sqlite3
-import webbrowser
 from contextlib import contextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -22,7 +21,7 @@ from kivymd.uix.textfield import MDTextField
 
 
 # ============================================================
-# Driver Control v4.3.0
+# Driver Control v4.1.0
 # Mejoras aplicadas:
 # - Valor actual de nafta dinámico y persistente con respaldo histórico.
 # - Exportación completa de datos operativos a formato CSV.
@@ -31,7 +30,7 @@ from kivymd.uix.textfield import MDTextField
 # ============================================================
 
 APP_NAME = "Driver Control"
-APP_VERSION = "4.3.0"
+APP_VERSION = "4.3.2"
 DB_FILE = "driver_control.db"
 DATE_FORMAT = "%d/%m/%Y"
 DATETIME_FORMAT = "%d/%m/%Y %H:%M"
@@ -78,8 +77,6 @@ ScreenManager:
     TripsScreen:
     ExpensesScreen:
     FuelScreen:
-    MapScreen:
-    MaintenanceScreen:
     CashScreen:
     SettingsScreen:
 
@@ -314,18 +311,6 @@ ScreenManager:
                     on_release: app.open_expense_dialog()
 
                 MDRaisedButton:
-                    text: "Mapa de estaciones"
-                    size_hint_y: None
-                    height: dp(48)
-                    on_release: app.go("map")
-
-                MDRaisedButton:
-                    text: "Mantenimiento"
-                    size_hint_y: None
-                    height: dp(48)
-                    on_release: app.go("maintenance")
-
-                MDRaisedButton:
                     text: "Caja de hoy"
                     size_hint_y: None
                     height: dp(48)
@@ -346,16 +331,16 @@ ScreenManager:
                 on_release: app.go("trips")
 
             MDFlatButton:
+                text: "Gastos"
+                on_release: app.go("expenses")
+
+            MDFlatButton:
                 text: "Nafta"
                 on_release: app.go("fuel")
 
             MDFlatButton:
-                text: "Mapa"
-                on_release: app.go("map")
-
-            MDFlatButton:
                 text: "Más"
-                on_release: app.go("maintenance")
+                on_release: app.go("settings")
 
 
 <BanknoteTile>:
@@ -613,186 +598,6 @@ ScreenManager:
                 adaptive_height: True
 
 
-<MapScreen>:
-    name: "map"
-    MDBoxLayout:
-        orientation: "vertical"
-        md_bg_color: app.bg_color
-
-        MDTopAppBar:
-            title: "Mapa de estaciones"
-            left_action_items: [["arrow-left", lambda x: app.go("dashboard")]]
-            md_bg_color: app.bg_color
-
-        ScrollView:
-            MDBoxLayout:
-                orientation: "vertical"
-                padding: dp(16)
-                spacing: dp(12)
-                adaptive_height: True
-
-                MDCard:
-                    orientation: "vertical"
-                    padding: dp(16)
-                    spacing: dp(8)
-                    radius: [18,18,18,18]
-                    md_bg_color: app.card_color
-                    size_hint_y: None
-                    height: dp(160)
-
-                    MDLabel:
-                        text: "TU AUTO"
-                        theme_text_color: "Custom"
-                        text_color: app.muted_color
-                        font_style: "Caption"
-                        size_hint_y: None
-                        height: dp(22)
-                    MDLabel:
-                        text: "🚗  " + root.vehicle_text
-                        font_style: "H6"
-                        bold: True
-                        size_hint_y: None
-                        height: dp(34)
-                    MDLabel:
-                        text: root.fuel_need_text
-                        size_hint_y: None
-                        height: dp(28)
-                    MDLabel:
-                        text: root.estimated_cost_text
-                        theme_text_color: "Custom"
-                        text_color: app.muted_color
-                        size_hint_y: None
-                        height: dp(28)
-
-                MDCard:
-                    orientation: "vertical"
-                    padding: dp(16)
-                    spacing: dp(10)
-                    radius: [18,18,18,18]
-                    md_bg_color: app.card_color
-                    size_hint_y: None
-                    height: dp(320)
-
-                    MDLabel:
-                        text: "MAPA"
-                        font_style: "H6"
-                        bold: True
-                        size_hint_y: None
-                        height: dp(30)
-
-                    MDLabel:
-                        text: "Vista preliminar · el conductor es el punto principal"
-                        theme_text_color: "Custom"
-                        text_color: app.muted_color
-                        size_hint_y: None
-                        height: dp(28)
-
-                    MDGridLayout:
-                        cols: 2
-                        spacing: dp(10)
-                        adaptive_height: True
-
-                        MDCard:
-                            padding: dp(12)
-                            radius: [16,16,16,16]
-                            md_bg_color: app.bg_color
-                            size_hint_y: None
-                            height: dp(88)
-                            MDLabel:
-                                text: "YPF\nPrecio en vivo: pendiente"
-                                halign: "center"
-                        MDCard:
-                            padding: dp(12)
-                            radius: [16,16,16,16]
-                            md_bg_color: app.bg_color
-                            size_hint_y: None
-                            height: dp(88)
-                            MDLabel:
-                                text: "SHELL\nPrecio en vivo: pendiente"
-                                halign: "center"
-                        MDCard:
-                            padding: dp(12)
-                            radius: [16,16,16,16]
-                            md_bg_color: app.bg_color
-                            size_hint_y: None
-                            height: dp(88)
-                            MDLabel:
-                                text: "AXION\nPrecio en vivo: pendiente"
-                                halign: "center"
-                        MDCard:
-                            padding: dp(12)
-                            radius: [16,16,16,16]
-                            md_bg_color: app.bg_color
-                            size_hint_y: None
-                            height: dp(88)
-                            MDLabel:
-                                text: "PUMA\nPrecio en vivo: pendiente"
-                                halign: "center"
-
-                    MDRaisedButton:
-                        text: "ABRIR MAPA REAL DE ESTACIONES"
-                        size_hint_y: None
-                        height: dp(48)
-                        on_release: app.open_station_map()
-
-                MDLabel:
-                    text: "La próxima integración conectará precios actualizados y explicará por qué una estación puede ser más cara: ubicación, logística, tipo de combustible, impuestos y fecha del precio."
-                    theme_text_color: "Custom"
-                    text_color: app.muted_color
-                    size_hint_y: None
-                    text_size: self.width, None
-                    height: self.texture_size[1] + dp(18)
-
-                MDRaisedButton:
-                    text: "Configurar tanque y combustible"
-                    size_hint_y: None
-                    height: dp(48)
-                    on_release: app.go("settings")
-
-
-<MaintenanceScreen>:
-    name: "maintenance"
-    MDBoxLayout:
-        orientation: "vertical"
-        md_bg_color: app.bg_color
-
-        MDTopAppBar:
-            title: "Mantenimiento"
-            left_action_items: [["arrow-left", lambda x: app.go("dashboard")]]
-            right_action_items: [["cog", lambda x: app.go("settings")]]
-            md_bg_color: app.bg_color
-
-        MDBoxLayout:
-            orientation: "vertical"
-            padding: [dp(16), dp(10), dp(16), dp(8)]
-            spacing: dp(8)
-            size_hint_y: None
-            height: dp(130)
-
-            MDLabel:
-                text: root.total_text
-                font_style: "H6"
-                bold: True
-                size_hint_y: None
-                height: dp(34)
-            MDLabel:
-                text: root.next_text
-                theme_text_color: "Custom"
-                text_color: app.muted_color
-                size_hint_y: None
-                height: dp(30)
-            MDRaisedButton:
-                text: "+ Registrar mantenimiento"
-                size_hint_y: None
-                height: dp(48)
-                on_release: app.open_maintenance_dialog()
-
-        ScrollView:
-            MDList:
-                id: maintenance_list
-                adaptive_height: True
-
-
 <CashScreen>:
     name: "cash"
     MDBoxLayout:
@@ -982,16 +787,6 @@ ScreenManager:
                     hint_text: "Vehículo"
 
                 MDTextField:
-                    id: tank_capacity
-                    hint_text: "Capacidad del tanque (L)"
-                    input_filter: "float"
-
-                MDTextField:
-                    id: current_fuel
-                    hint_text: "Combustible actual estimado (L)"
-                    input_filter: "float"
-
-                MDTextField:
                     id: fuel_consumption
                     hint_text: "Consumo del auto (L/100 km)"
                     input_filter: "float"
@@ -1076,17 +871,6 @@ class ExpensesScreen(Screen):
 
 class FuelScreen(Screen):
     pass
-
-
-class MapScreen(Screen):
-    vehicle_text = StringProperty(DEFAULT_VEHICLE)
-    fuel_need_text = StringProperty("Necesitás 0 L para llenar")
-    estimated_cost_text = StringProperty("Costo estimado: $0")
-
-
-class MaintenanceScreen(Screen):
-    total_text = StringProperty("Mantenimiento acumulado: $0")
-    next_text = StringProperty("Próximo mantenimiento: sin datos")
 
 
 class CashScreen(Screen):
@@ -1219,19 +1003,6 @@ class DriverControlApp(MDApp):
             )
             self.conn.execute(
                 """
-                CREATE TABLE IF NOT EXISTS maintenance(
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    created_at TEXT NOT NULL,
-                    kind TEXT NOT NULL,
-                    amount REAL NOT NULL DEFAULT 0 CHECK(amount >= 0),
-                    odometer REAL NOT NULL DEFAULT 0 CHECK(odometer >= 0),
-                    next_odometer REAL,
-                    notes TEXT
-                )
-                """
-            )
-            self.conn.execute(
-                """
                 CREATE TABLE IF NOT EXISTS settings(
                     key TEXT PRIMARY KEY,
                     value TEXT NOT NULL
@@ -1255,9 +1026,6 @@ class DriverControlApp(MDApp):
             )
             self.conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_fuel_created_at ON fuel(created_at)"
-            )
-            self.conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_maintenance_created_at ON maintenance(created_at)"
             )
 
             self.conn.execute(
@@ -1284,14 +1052,6 @@ class DriverControlApp(MDApp):
             self.conn.execute(
                 "INSERT OR IGNORE INTO settings(key,value) VALUES('vehicle',?)",
                 (DEFAULT_VEHICLE,),
-            )
-            self.conn.execute(
-                "INSERT OR IGNORE INTO settings(key,value) VALUES('tank_capacity',?)",
-                ("55",),
-            )
-            self.conn.execute(
-                "INSERT OR IGNORE INTO settings(key,value) VALUES('current_fuel',?)",
-                ("0",),
             )
             self.conn.execute(
                 "INSERT OR IGNORE INTO settings(key,value) VALUES('fuel_consumption',?)",
@@ -1694,33 +1454,6 @@ class DriverControlApp(MDApp):
         settings_screen.ids.fuel_price.text = self._compact_number(
             self._setting_float("fuel_price", DEFAULT_FUEL_PRICE)
         )
-        tank_capacity = self._setting_float("tank_capacity", 55.0)
-        try:
-            current_fuel = max(float(self.setting("current_fuel", "0") or 0), 0.0)
-        except (TypeError, ValueError):
-            current_fuel = 0.0
-        current_fuel = min(current_fuel, tank_capacity)
-        settings_screen.ids.tank_capacity.text = self._compact_number(tank_capacity)
-        settings_screen.ids.current_fuel.text = self._compact_number(current_fuel)
-
-        map_screen = self.root.get_screen("map")
-        map_screen.vehicle_text = self.setting("vehicle", DEFAULT_VEHICLE)
-        needed_liters = max(tank_capacity - current_fuel, 0.0)
-        map_screen.fuel_need_text = f"Necesitás {needed_liters:.1f} L para llenar"
-        map_screen.estimated_cost_text = (
-            f"Costo estimado con tu precio actual: {self.money(needed_liters * self._setting_float('fuel_price', DEFAULT_FUEL_PRICE))}"
-        )
-
-        maint = self.root.get_screen("maintenance")
-        mrow = self.conn.execute("SELECT COALESCE(SUM(amount),0) AS total FROM maintenance").fetchone()
-        maint.total_text = f"Mantenimiento acumulado: {self.money(float(mrow['total'] or 0))}"
-        nrow = self.conn.execute(
-            "SELECT kind, next_odometer FROM maintenance WHERE next_odometer IS NOT NULL AND next_odometer > 0 ORDER BY next_odometer ASC LIMIT 1"
-        ).fetchone()
-        maint.next_text = (
-            f"Próximo: {nrow['kind']} a los {float(nrow['next_odometer']):.0f} km"
-            if nrow else "Próximo mantenimiento: sin datos"
-        )
 
     def _refresh_cash_summary(self, date_text: str):
         rows = self.conn.execute(
@@ -1803,7 +1536,6 @@ class DriverControlApp(MDApp):
         self._fill_trip_list()
         self._fill_expense_list()
         self._fill_fuel_list()
-        self._fill_maintenance_list()
 
     def _fill_trip_list(self):
         target = self.root.get_screen("trips").ids.trips_list
@@ -1890,48 +1622,6 @@ class DriverControlApp(MDApp):
                 on_release=lambda _x, fuel_id=row["id"]: self.confirm_delete_fuel(fuel_id)
             )
             target.add_widget(item)
-
-    def _fill_maintenance_list(self):
-        target = self.root.get_screen("maintenance").ids.maintenance_list
-        target.clear_widgets()
-        rows = self.conn.execute(
-            """
-            SELECT id, created_at, kind, amount, odometer, next_odometer, notes
-            FROM maintenance
-            ORDER BY id DESC
-            LIMIT ?
-            """,
-            (MAX_HISTORY_ITEMS,),
-        ).fetchall()
-        for row in rows:
-            nxt = f" · Próximo {row['next_odometer']:.0f} km" if row['next_odometer'] else ""
-            item = TwoLineListItem(
-                text=f"{row['kind']} · {self.money(row['amount'])}",
-                secondary_text=f"{row['created_at']} · {row['odometer']:.0f} km{nxt} · Tocá para eliminar",
-            )
-            item.bind(on_release=lambda _x, mid=row["id"]: self.confirm_delete_maintenance(mid))
-            target.add_widget(item)
-
-    def confirm_delete_maintenance(self, maintenance_id: int):
-        dialog = MDDialog(
-            title="Eliminar mantenimiento",
-            text="¿Querés eliminar este registro?",
-            buttons=[
-                MDFlatButton(text="CANCELAR", on_release=lambda _x: dialog.dismiss()),
-                MDFlatButton(text="ELIMINAR", on_release=lambda _x: self.delete_maintenance(maintenance_id, dialog)),
-            ],
-        )
-        dialog.open()
-
-    def delete_maintenance(self, maintenance_id: int, dialog):
-        try:
-            with self.transaction():
-                self.conn.execute("DELETE FROM maintenance WHERE id=?", (maintenance_id,))
-            dialog.dismiss()
-            self.refresh_all()
-        except Exception:
-            LOGGER.exception("Could not delete maintenance id=%s", maintenance_id)
-            self.show_message("Error", "No se pudo eliminar el mantenimiento.")
 
     def confirm_delete_fuel(self, fuel_id: int):
         dialog = MDDialog(
@@ -2358,52 +2048,6 @@ class DriverControlApp(MDApp):
                 "No se pudo guardar la carga de combustible.",
             )
 
-    def open_station_map(self):
-        try:
-            # Abre una búsqueda real de estaciones. La vista interna con precios en vivo
-            # se conectará a una fuente pública/API en la siguiente integración.
-            webbrowser.open("https://www.google.com/maps/search/estaciones+de+servicio")
-        except Exception:
-            LOGGER.exception("Could not open station map")
-            self.show_message("Mapa", "No se pudo abrir el mapa externo.")
-
-    def open_maintenance_dialog(self):
-        fields = [
-            ("kind", "Tipo: aceite / frenos / cubiertas / service", False),
-            ("amount", "Costo", True),
-            ("odometer", "Odómetro actual", True),
-            ("next_odometer", "Próximo cambio a los km (opcional)", True),
-            ("notes", "Notas", False),
-        ]
-        self.input_dialog("Registrar mantenimiento", fields, self.save_maintenance)
-
-    def save_maintenance(self, dialog, widgets):
-        try:
-            kind = (widgets["kind"].text or "Mantenimiento").strip()
-            amount = self._parse_non_negative_float(widgets["amount"].text or "0", "Costo")
-            odometer = self._parse_non_negative_float(widgets["odometer"].text or "0", "Odómetro")
-            raw_next = (widgets["next_odometer"].text or "").strip()
-            next_odometer = None
-            if raw_next:
-                next_odometer = self._parse_non_negative_float(raw_next, "Próximo odómetro", allow_zero=False)
-                if next_odometer <= odometer:
-                    raise ValidationError("El próximo mantenimiento debe quedar por encima del odómetro actual.")
-            notes = (widgets["notes"].text or "").strip()
-            now = datetime.now().strftime(DATETIME_FORMAT)
-            with self.transaction():
-                self.conn.execute(
-                    "INSERT INTO maintenance(created_at,kind,amount,odometer,next_odometer,notes) VALUES(?,?,?,?,?,?)",
-                    (now, kind, amount, odometer, next_odometer, notes),
-                )
-            dialog.dismiss()
-            self.refresh_all()
-            self.show_message("Mantenimiento", "Registro guardado.")
-        except ValidationError as exc:
-            self.show_message("Revisá los datos", str(exc))
-        except Exception:
-            LOGGER.exception("Could not save maintenance")
-            self.show_message("Error", "No se pudo guardar el mantenimiento.")
-
     def save_settings(self):
         screen = self.root.get_screen("settings")
         try:
@@ -2418,14 +2062,6 @@ class DriverControlApp(MDApp):
                 allow_zero=False,
             )
             vehicle = (screen.ids.vehicle.text or DEFAULT_VEHICLE).strip()
-            tank_capacity = self._parse_non_negative_float(
-                screen.ids.tank_capacity.text, "Capacidad del tanque", allow_zero=False
-            )
-            current_fuel = self._parse_non_negative_float(
-                screen.ids.current_fuel.text or "0", "Combustible actual"
-            )
-            if current_fuel > tank_capacity:
-                raise ValidationError("El combustible actual no puede superar la capacidad del tanque.")
             fuel_consumption = self._parse_non_negative_float(
                 screen.ids.fuel_consumption.text, "Consumo", allow_zero=False
             )
@@ -2445,14 +2081,6 @@ class DriverControlApp(MDApp):
                 self.conn.execute(
                     "INSERT OR REPLACE INTO settings(key,value) VALUES('vehicle',?)",
                     (vehicle,),
-                )
-                self.conn.execute(
-                    "INSERT OR REPLACE INTO settings(key,value) VALUES('tank_capacity',?)",
-                    (str(tank_capacity),),
-                )
-                self.conn.execute(
-                    "INSERT OR REPLACE INTO settings(key,value) VALUES('current_fuel',?)",
-                    (str(current_fuel),),
                 )
                 self.conn.execute(
                     "INSERT OR REPLACE INTO settings(key,value) VALUES('fuel_consumption',?)",

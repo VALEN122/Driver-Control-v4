@@ -9,7 +9,7 @@ from typing import Optional
 from kivy.lang import Builder
 from kivy.clock import Clock
 from kivy.metrics import dp
-from kivy.properties import NumericProperty, StringProperty
+from kivy.properties import ListProperty, NumericProperty, StringProperty
 from kivy.uix.screenmanager import Screen
 from kivymd.app import MDApp
 from kivymd.uix.boxlayout import MDBoxLayout
@@ -30,7 +30,7 @@ from kivymd.uix.textfield import MDTextField
 # ============================================================
 
 APP_NAME = "Driver Control"
-APP_VERSION = "4.3.2"
+APP_VERSION = "4.4.0"
 DB_FILE = "driver_control.db"
 DATE_FORMAT = "%d/%m/%Y"
 DATETIME_FORMAT = "%d/%m/%Y %H:%M"
@@ -40,6 +40,9 @@ DEFAULT_WEEKLY_GOAL = 400000.0
 DEFAULT_VEHICLE = "Volkswagen Gol Trend 2015"
 DEFAULT_FUEL_CONSUMPTION = 8.0  # L/100 km
 DEFAULT_FUEL_PRICE = 2048.0  # $/L; editable en Configuración
+DEFAULT_ASSISTANT_MIN_HOURLY = 15000.0
+DEFAULT_ASSISTANT_MIN_PER_KM = 500.0
+DEFAULT_ASSISTANT_MAX_PICKUP_KM = 3.0
 
 PAYMENT_CASH = "Efectivo"
 PAYMENT_MP = "Mercado Pago"
@@ -78,6 +81,8 @@ ScreenManager:
     ExpensesScreen:
     FuelScreen:
     CashScreen:
+    SessionsScreen:
+    TripAssistantScreen:
     SettingsScreen:
 
 <DashboardScreen>:
@@ -207,7 +212,7 @@ ScreenManager:
                     height: dp(150)
 
                     MDLabel:
-                        text: "COMBUSTIBLE DE LA JORNADA"
+                        text: "COMBUSTIBLE DEL DÍA"
                         theme_text_color: "Custom"
                         text_color: app.muted_color
                         font_style: "Caption"
@@ -299,6 +304,13 @@ ScreenManager:
                         height: dp(26)
 
                 MDRaisedButton:
+                    text: "¿Me conviene este viaje?"
+                    size_hint_y: None
+                    height: dp(52)
+                    md_bg_color: app.accent_color
+                    on_release: app.go("assistant")
+
+                MDRaisedButton:
                     text: "+ Nuevo viaje"
                     size_hint_y: None
                     height: dp(48)
@@ -315,6 +327,12 @@ ScreenManager:
                     size_hint_y: None
                     height: dp(48)
                     on_release: app.go("cash")
+
+                MDRaisedButton:
+                    text: "Ver jornadas"
+                    size_hint_y: None
+                    height: dp(48)
+                    on_release: app.go("sessions")
 
         MDBoxLayout:
             size_hint_y: None
@@ -754,6 +772,191 @@ ScreenManager:
                     height: self.texture_size[1] + dp(20)
 
 
+<SessionsScreen>:
+    name: "sessions"
+    MDBoxLayout:
+        orientation: "vertical"
+        md_bg_color: app.bg_color
+
+        MDTopAppBar:
+            title: "Jornadas"
+            left_action_items: [["arrow-left", lambda x: app.go("dashboard")]]
+            md_bg_color: app.bg_color
+
+        MDBoxLayout:
+            orientation: "vertical"
+            padding: [dp(16), dp(10), dp(16), dp(6)]
+            spacing: dp(4)
+            size_hint_y: None
+            height: dp(72)
+
+            MDLabel:
+                text: "Cada jornada tiene su propio resumen"
+                bold: True
+            MDLabel:
+                text: "Tocá una jornada para ver caja, km, nafta y ganancia."
+                theme_text_color: "Custom"
+                text_color: app.muted_color
+                font_style: "Caption"
+
+        ScrollView:
+            MDList:
+                id: sessions_list
+
+
+
+<TripAssistantScreen>:
+    name: "assistant"
+    MDBoxLayout:
+        orientation: "vertical"
+        md_bg_color: app.bg_color
+
+        MDTopAppBar:
+            title: "Asistente de viajes"
+            left_action_items: [["arrow-left", lambda x: app.go("dashboard")]]
+            md_bg_color: app.bg_color
+
+        ScrollView:
+            MDBoxLayout:
+                orientation: "vertical"
+                padding: dp(16)
+                spacing: dp(12)
+                adaptive_height: True
+
+                MDCard:
+                    orientation: "vertical"
+                    padding: dp(16)
+                    spacing: dp(6)
+                    radius: [18,18,18,18]
+                    md_bg_color: app.card_color
+                    size_hint_y: None
+                    height: dp(112)
+
+                    MDLabel:
+                        text: "Evaluación rápida"
+                        font_style: "H6"
+                        bold: True
+                    MDLabel:
+                        text: "Cargá los datos que muestra Uber. Driver Control calcula costo, $/h y $/km."
+                        theme_text_color: "Custom"
+                        text_color: app.muted_color
+                        font_style: "Caption"
+
+                MDTextField:
+                    id: assistant_fare
+                    hint_text: "Tarifa ofrecida ($)"
+                    input_filter: "float"
+
+                MDGridLayout:
+                    cols: 2
+                    adaptive_height: True
+                    spacing: dp(10)
+
+                    MDTextField:
+                        id: assistant_pickup_min
+                        hint_text: "Min para buscar"
+                        input_filter: "float"
+
+                    MDTextField:
+                        id: assistant_pickup_km
+                        hint_text: "Km para buscar"
+                        input_filter: "float"
+
+                    MDTextField:
+                        id: assistant_trip_min
+                        hint_text: "Min del viaje"
+                        input_filter: "float"
+
+                    MDTextField:
+                        id: assistant_trip_km
+                        hint_text: "Km del viaje"
+                        input_filter: "float"
+
+                MDLabel:
+                    text: "Zona de destino"
+                    bold: True
+                    size_hint_y: None
+                    height: dp(28)
+
+                MDBoxLayout:
+                    adaptive_height: True
+                    spacing: dp(8)
+
+                    MDFlatButton:
+                        text: "Mala"
+                        on_release: app.set_assistant_destination("Mala")
+                    MDFlatButton:
+                        text: "Normal"
+                        on_release: app.set_assistant_destination("Normal")
+                    MDFlatButton:
+                        text: "Buena"
+                        on_release: app.set_assistant_destination("Buena")
+
+                MDLabel:
+                    text: "Seleccionada: " + root.destination_rating
+                    theme_text_color: "Custom"
+                    text_color: app.muted_color
+                    size_hint_y: None
+                    height: dp(26)
+
+                MDRaisedButton:
+                    text: "ANALIZAR VIAJE"
+                    size_hint_y: None
+                    height: dp(54)
+                    on_release: app.analyze_trip_offer()
+
+                MDCard:
+                    orientation: "vertical"
+                    padding: dp(16)
+                    spacing: dp(7)
+                    radius: [18,18,18,18]
+                    md_bg_color: app.card_color
+                    size_hint_y: None
+                    height: dp(260)
+
+                    MDLabel:
+                        text: root.recommendation_text
+                        font_style: "H5"
+                        bold: True
+                        theme_text_color: "Custom"
+                        text_color: root.recommendation_color
+                        size_hint_y: None
+                        height: dp(40)
+
+                    MDLabel:
+                        text: root.summary_text
+                        bold: True
+                        size_hint_y: None
+                        height: dp(34)
+
+                    MDLabel:
+                        text: root.metrics_text
+                        theme_text_color: "Custom"
+                        text_color: app.muted_color
+                        size_hint_y: None
+                        height: dp(94)
+
+                    MDLabel:
+                        text: root.reason_text
+                        theme_text_color: "Custom"
+                        text_color: app.muted_color
+                        font_style: "Caption"
+                        size_hint_y: None
+                        height: dp(68)
+
+                MDLabel:
+                    text: "La recomendación es orientativa. Vos decidís si aceptar o rechazar."
+                    theme_text_color: "Custom"
+                    text_color: app.muted_color
+                    font_style: "Caption"
+                    size_hint_y: None
+                    height: dp(34)
+
+                Widget:
+                    size_hint_y: None
+                    height: dp(28)
+
+
 <SettingsScreen>:
     name: "settings"
     MDBoxLayout:
@@ -796,6 +999,28 @@ ScreenManager:
                     hint_text: "Precio actual de nafta ($/L)"
                     helper_text: "Actualizado automáticamente en cálculos"
                     helper_text_mode: "on_focus"
+                    input_filter: "float"
+
+                MDLabel:
+                    text: "Asistente de viajes"
+                    font_style: "H6"
+                    bold: True
+                    size_hint_y: None
+                    height: dp(34)
+
+                MDTextField:
+                    id: assistant_min_hourly
+                    hint_text: "Mínimo deseado por hora ($/h)"
+                    input_filter: "float"
+
+                MDTextField:
+                    id: assistant_min_per_km
+                    hint_text: "Mínimo deseado por km ($/km)"
+                    input_filter: "float"
+
+                MDTextField:
+                    id: assistant_max_pickup_km
+                    hint_text: "Pickup máximo deseado (km)"
                     input_filter: "float"
 
                 MDRaisedButton:
@@ -882,6 +1107,20 @@ class CashScreen(Screen):
     change_text = StringProperty("Vuelto entregado: $0")
     cash_kept_text = StringProperty("Efectivo neto por viajes: $0")
     total_text = StringProperty("$0")
+
+
+class SessionsScreen(Screen):
+    pass
+
+
+class TripAssistantScreen(Screen):
+    destination_rating = StringProperty("Normal")
+    recommendation_text = StringProperty("Cargá un viaje para analizar")
+    summary_text = StringProperty("Todavía no hay evaluación")
+    metrics_text = StringProperty("Tarifa · tiempo · kilómetros · combustible")
+    reason_text = StringProperty("La app comparará el viaje con tus objetivos.")
+    recommendation_color = ListProperty([0.10, 0.55, 0.25, 1])
+
 
 
 class SettingsScreen(Screen):
@@ -1042,6 +1281,30 @@ class DriverControlApp(MDApp):
             )
 
             self.conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS trip_assessments(
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    created_at TEXT NOT NULL,
+                    fare REAL NOT NULL,
+                    pickup_min REAL NOT NULL,
+                    pickup_km REAL NOT NULL,
+                    trip_min REAL NOT NULL,
+                    trip_km REAL NOT NULL,
+                    total_min REAL NOT NULL,
+                    total_km REAL NOT NULL,
+                    fuel_cost REAL NOT NULL,
+                    net_est REAL NOT NULL,
+                    hourly_est REAL NOT NULL,
+                    per_km_est REAL NOT NULL,
+                    score REAL NOT NULL,
+                    recommendation TEXT NOT NULL,
+                    destination_rating TEXT NOT NULL,
+                    decision TEXT
+                )
+                """
+            )
+
+            self.conn.execute(
                 "INSERT OR IGNORE INTO settings(key,value) VALUES('daily_goal',?)",
                 (str(DEFAULT_DAILY_GOAL),),
             )
@@ -1060,6 +1323,18 @@ class DriverControlApp(MDApp):
             self.conn.execute(
                 "INSERT OR IGNORE INTO settings(key,value) VALUES('fuel_price',?)",
                 (str(DEFAULT_FUEL_PRICE),),
+            )
+            self.conn.execute(
+                "INSERT OR IGNORE INTO settings(key,value) VALUES('assistant_min_hourly',?)",
+                (str(DEFAULT_ASSISTANT_MIN_HOURLY),),
+            )
+            self.conn.execute(
+                "INSERT OR IGNORE INTO settings(key,value) VALUES('assistant_min_per_km',?)",
+                (str(DEFAULT_ASSISTANT_MIN_PER_KM),),
+            )
+            self.conn.execute(
+                "INSERT OR IGNORE INTO settings(key,value) VALUES('assistant_max_pickup_km',?)",
+                (str(DEFAULT_ASSISTANT_MAX_PICKUP_KM),),
             )
 
     def _ensure_column(self, table: str, column: str, sql_type: str):
@@ -1343,6 +1618,190 @@ class DriverControlApp(MDApp):
             LOGGER.exception("Could not close work session")
             self.show_message("Error", "No se pudo cerrar la jornada.")
 
+    def set_assistant_destination(self, rating: str):
+        if rating not in ("Mala", "Normal", "Buena"):
+            return
+        screen = self.root.get_screen("assistant")
+        screen.destination_rating = rating
+
+    @staticmethod
+    def _clamp(value: float, low: float, high: float) -> float:
+        return max(low, min(high, value))
+
+    def _assistant_result(self, fare, pickup_min, pickup_km, trip_min, trip_km, destination):
+        total_min = pickup_min + trip_min
+        total_km = pickup_km + trip_km
+        if total_min <= 0:
+            raise ValidationError("Tiempo total: debe ser mayor que 0.")
+        if total_km <= 0:
+            raise ValidationError("Kilómetros totales: deben ser mayores que 0.")
+        if fare <= 0:
+            raise ValidationError("Tarifa ofrecida: debe ser mayor que 0.")
+
+        consumption = self._setting_float("fuel_consumption", DEFAULT_FUEL_CONSUMPTION)
+        fuel_price = self._setting_float("fuel_price", DEFAULT_FUEL_PRICE)
+        min_hourly = self._setting_float("assistant_min_hourly", DEFAULT_ASSISTANT_MIN_HOURLY)
+        min_per_km = self._setting_float("assistant_min_per_km", DEFAULT_ASSISTANT_MIN_PER_KM)
+        max_pickup = self._setting_float("assistant_max_pickup_km", DEFAULT_ASSISTANT_MAX_PICKUP_KM)
+
+        fuel_liters = total_km * consumption / 100.0
+        fuel_cost = fuel_liters * fuel_price
+        net_est = fare - fuel_cost
+        hourly_est = net_est * 60.0 / total_min
+        per_km_est = net_est / total_km
+
+        hourly_score = self._clamp(hourly_est / min_hourly, 0.0, 1.25) / 1.25 * 30.0
+        km_score = self._clamp(per_km_est / min_per_km, 0.0, 1.25) / 1.25 * 25.0
+        if pickup_km <= max_pickup:
+            pickup_score = 15.0
+        else:
+            over_ratio = (pickup_km - max_pickup) / max(max_pickup, 0.1)
+            pickup_score = 15.0 * self._clamp(1.0 - over_ratio, 0.0, 1.0)
+        destination_score = {"Mala": 4.0, "Normal": 10.0, "Buena": 15.0}.get(destination, 10.0)
+        fuel_ratio = fuel_cost / fare if fare else 1.0
+        fuel_score = 15.0 * self._clamp(1.0 - fuel_ratio, 0.0, 1.0)
+        score = self._clamp(hourly_score + km_score + pickup_score + destination_score + fuel_score, 0.0, 100.0)
+
+        if score >= 80:
+            recommendation = "EXCELENTE"
+            color = (0.05, 0.60, 0.26, 1)
+        elif score >= 65:
+            recommendation = "CONVIENE"
+            color = (0.05, 0.60, 0.26, 1)
+        elif score >= 45:
+            recommendation = "DUDOSO"
+            color = (0.92, 0.55, 0.05, 1)
+        else:
+            recommendation = "NO CONVIENE"
+            color = (0.86, 0.16, 0.18, 1)
+
+        reasons = []
+        if hourly_est >= min_hourly:
+            reasons.append("Buen $/hora")
+        else:
+            reasons.append("$/hora bajo")
+        if per_km_est >= min_per_km:
+            reasons.append("Buen $/km")
+        else:
+            reasons.append("$/km bajo")
+        if pickup_km <= max_pickup:
+            reasons.append("Pickup razonable")
+        else:
+            reasons.append("Pickup lejano")
+        if destination == "Buena":
+            reasons.append("Buen destino")
+        elif destination == "Mala":
+            reasons.append("Destino poco conveniente")
+        if fuel_ratio > 0.25:
+            reasons.append("Combustible pesa mucho")
+
+        return {
+            "fare": fare,
+            "pickup_min": pickup_min,
+            "pickup_km": pickup_km,
+            "trip_min": trip_min,
+            "trip_km": trip_km,
+            "total_min": total_min,
+            "total_km": total_km,
+            "fuel_liters": fuel_liters,
+            "fuel_cost": fuel_cost,
+            "net_est": net_est,
+            "hourly_est": hourly_est,
+            "per_km_est": per_km_est,
+            "score": score,
+            "recommendation": recommendation,
+            "destination": destination,
+            "color": color,
+            "reasons": reasons,
+        }
+
+    def analyze_trip_offer(self):
+        screen = self.root.get_screen("assistant")
+        try:
+            fare = self._parse_non_negative_float(screen.ids.assistant_fare.text, "Tarifa", allow_zero=False)
+            pickup_min = self._parse_non_negative_float(screen.ids.assistant_pickup_min.text, "Min para buscar")
+            pickup_km = self._parse_non_negative_float(screen.ids.assistant_pickup_km.text, "Km para buscar")
+            trip_min = self._parse_non_negative_float(screen.ids.assistant_trip_min.text, "Min del viaje")
+            trip_km = self._parse_non_negative_float(screen.ids.assistant_trip_km.text, "Km del viaje")
+            result = self._assistant_result(
+                fare, pickup_min, pickup_km, trip_min, trip_km, screen.destination_rating
+            )
+            self.last_assistant_result = result
+            screen.recommendation_text = f"{result['recommendation']} · {result['score']:.0f}/100"
+            screen.recommendation_color = result["color"]
+            screen.summary_text = (
+                f"Neto est.: {self.money(result['net_est'])} · {result['total_min']:.0f} min · {result['total_km']:.1f} km"
+            )
+            screen.metrics_text = (
+                f"$/hora: {self.money(result['hourly_est'])}/h\n"
+                f"$/km: {self.money(result['per_km_est'])}/km\n"
+                f"Nafta: {result['fuel_liters']:.2f} L · {self.money(result['fuel_cost'])}"
+            )
+            screen.reason_text = " · ".join(result["reasons"][:4])
+            self._show_assistant_result_dialog(result)
+        except ValidationError as exc:
+            self.show_message("Revisá el viaje", str(exc))
+        except Exception:
+            LOGGER.exception("Could not analyze trip offer")
+            self.show_message("Error", "No se pudo analizar el viaje.")
+
+    def _show_assistant_result_dialog(self, result):
+        dialog = MDDialog(
+            title=f"{result['recommendation']} · {result['score']:.0f}/100",
+            text="\n".join([
+                f"Tarifa: {self.money(result['fare'])}",
+                f"Tiempo total: {result['total_min']:.0f} min",
+                f"Distancia total: {result['total_km']:.1f} km",
+                f"Costo nafta: {self.money(result['fuel_cost'])}",
+                f"Ganancia neta est.: {self.money(result['net_est'])}",
+                f"$/hora: {self.money(result['hourly_est'])}/h",
+                f"$/km: {self.money(result['per_km_est'])}/km",
+                "",
+                "Por qué: " + " · ".join(result['reasons'][:4]),
+            ]),
+            buttons=[],
+        )
+
+        def mark(decision):
+            self.save_trip_assessment(decision)
+            dialog.dismiss()
+
+        dialog.buttons = [
+            MDFlatButton(text="RECHACÉ", on_release=lambda _x: mark("REJECTED")),
+            MDFlatButton(text="CERRAR", on_release=lambda _x: dialog.dismiss()),
+            MDFlatButton(text="ACEPTÉ", on_release=lambda _x: mark("ACCEPTED")),
+        ]
+        dialog.open()
+
+    def save_trip_assessment(self, decision: str):
+        result = getattr(self, "last_assistant_result", None)
+        if not result:
+            return
+        try:
+            with self.transaction():
+                self.conn.execute(
+                    """
+                    INSERT INTO trip_assessments(
+                        created_at, fare, pickup_min, pickup_km, trip_min, trip_km,
+                        total_min, total_km, fuel_cost, net_est, hourly_est, per_km_est,
+                        score, recommendation, destination_rating, decision
+                    ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                    """,
+                    (
+                        datetime.now().strftime(DATETIME_FORMAT),
+                        result["fare"], result["pickup_min"], result["pickup_km"],
+                        result["trip_min"], result["trip_km"], result["total_min"],
+                        result["total_km"], result["fuel_cost"], result["net_est"],
+                        result["hourly_est"], result["per_km_est"], result["score"],
+                        result["recommendation"], result["destination"], decision,
+                    ),
+                )
+            label = "aceptado" if decision == "ACCEPTED" else "rechazado"
+            self.show_message("Guardado", f"Viaje marcado como {label} para aprender de tus decisiones.")
+        except Exception:
+            LOGGER.exception("Could not save trip assessment")
+            self.show_message("Error", "No se pudo guardar la evaluación.")
+
     def refresh_all(self):
         now = datetime.now()
         today = now.strftime(DATE_FORMAT)
@@ -1402,19 +1861,23 @@ class DriverControlApp(MDApp):
         dashboard = self.root.get_screen("dashboard")
         session = self._active_session()
         if session is not None:
-            metrics = self._session_metrics(int(session["id"]))
             dashboard.session_status_text = "Jornada abierta"
             dashboard.session_action_text = "CERRAR JORNADA"
-            dashboard.fuel_used_text = (
-                f"Consumido: {metrics['fuel_liters']:.2f} L · {self.money(metrics['fuel_cost'])}"
-            )
-            dashboard.fuel_reserve_text = f"A reponer: {self.money(metrics['fuel_cost'])}"
         else:
             dashboard.session_status_text = "Jornada cerrada"
             dashboard.session_time_text = "Abrí una jornada para empezar"
             dashboard.session_action_text = "ABRIR JORNADA"
-            dashboard.fuel_used_text = "Consumido: 0,00 L · $0"
-            dashboard.fuel_reserve_text = "A reponer: $0"
+
+        # El combustible del dashboard representa TODO EL DÍA, incluso después
+        # de cerrar una jornada. Así no vuelve a cero al cerrar.
+        consumption_today = self._setting_float("fuel_consumption", DEFAULT_FUEL_CONSUMPTION)
+        fuel_price_today = self._setting_float("fuel_price", DEFAULT_FUEL_PRICE)
+        fuel_liters_today = km * consumption_today / 100.0
+        fuel_cost_today = fuel_liters_today * fuel_price_today
+        dashboard.fuel_used_text = (
+            f"Consumido: {fuel_liters_today:.2f} L · {self.money(fuel_cost_today)}"
+        )
+        dashboard.fuel_reserve_text = f"A reponer: {self.money(fuel_cost_today)}"
 
         dashboard.revenue_text = self.money(total)
         dashboard.net_text = self.money(total - expenses - estimated_fuel_cost_today)
@@ -1443,6 +1906,7 @@ class DriverControlApp(MDApp):
 
         self._refresh_cash_summary(today)
         self.fill_lists()
+        self.fill_sessions()
 
         settings_screen = self.root.get_screen("settings")
         settings_screen.ids.daily_goal.text = self._compact_number(daily_goal)
@@ -1453,6 +1917,15 @@ class DriverControlApp(MDApp):
         )
         settings_screen.ids.fuel_price.text = self._compact_number(
             self._setting_float("fuel_price", DEFAULT_FUEL_PRICE)
+        )
+        settings_screen.ids.assistant_min_hourly.text = self._compact_number(
+            self._setting_float("assistant_min_hourly", DEFAULT_ASSISTANT_MIN_HOURLY)
+        )
+        settings_screen.ids.assistant_min_per_km.text = self._compact_number(
+            self._setting_float("assistant_min_per_km", DEFAULT_ASSISTANT_MIN_PER_KM)
+        )
+        settings_screen.ids.assistant_max_pickup_km.text = self._compact_number(
+            self._setting_float("assistant_max_pickup_km", DEFAULT_ASSISTANT_MAX_PICKUP_KM)
         )
 
     def _refresh_cash_summary(self, date_text: str):
@@ -1531,6 +2004,80 @@ class DriverControlApp(MDApp):
 
     def _compact_number(self, value: float) -> str:
         return str(int(value)) if float(value).is_integer() else str(value)
+
+    def fill_sessions(self):
+        """Muestra jornadas cerradas por separado, de la más nueva a la más vieja."""
+        try:
+            screen = self.root.get_screen("sessions")
+        except Exception:
+            return
+        lst = screen.ids.sessions_list
+        lst.clear_widgets()
+        rows = self.conn.execute(
+            "SELECT * FROM work_sessions ORDER BY id DESC LIMIT ?",
+            (MAX_HISTORY_ITEMS,),
+        ).fetchall()
+        if not rows:
+            lst.add_widget(TwoLineListItem(
+                text="Todavía no hay jornadas",
+                secondary_text="Abrí y cerrá una jornada para verla acá.",
+            ))
+            return
+        for row in rows:
+            sid = int(row["id"])
+            try:
+                metrics = self._session_metrics(sid)
+            except Exception:
+                LOGGER.exception("Could not calculate session %s", sid)
+                continue
+            status = "Abierta" if row["status"] == "OPEN" else "Cerrada"
+            opened = row["opened_at"] or ""
+            closed = row["closed_at"] or "en curso"
+            item = TwoLineListItem(
+                text=f"Jornada #{sid} · {status} · {opened}",
+                secondary_text=(
+                    f"{self.money(metrics['revenue'])} · {metrics['worked_km']:.1f} km · "
+                    f"{metrics['fuel_liters']:.2f} L · Neto {self.money(metrics['net'])}"
+                ),
+            )
+            item.bind(on_release=lambda _item, session_id=sid: self.show_session_summary(session_id))
+            lst.add_widget(item)
+
+    def show_session_summary(self, session_id: int):
+        try:
+            session = self.conn.execute(
+                "SELECT * FROM work_sessions WHERE id=?", (session_id,)
+            ).fetchone()
+            if session is None:
+                raise ValidationError("No se encontró la jornada.")
+            metrics = self._session_metrics(session_id)
+            closing_cash = session["closing_cash"]
+            cash_difference = session["cash_difference"]
+            lines = [
+                f"Inicio: {session['opened_at']}",
+                f"Cierre: {session['closed_at'] or 'En curso'}",
+                f"Facturación: {self.money(metrics['revenue'])}",
+                f"Viajes: {metrics['trips']}",
+                f"Km trabajados: {metrics['worked_km']:.1f} km",
+                f"Nafta consumida: {metrics['fuel_liters']:.2f} L",
+                f"A reponer: {self.money(metrics['fuel_cost'])}",
+                f"Nafta cargada: {metrics['fuel_loaded_liters']:.2f} L · {self.money(metrics['fuel_loaded_amount'])}",
+                f"Otros gastos: {self.money(metrics['operating_expenses'])}",
+                f"Ganancia neta: {self.money(metrics['net'])}",
+                f"Caja esperada: {self.money(metrics['cash_expected'])}",
+            ]
+            if closing_cash is not None:
+                lines.append(f"Caja contada: {self.money(float(closing_cash))}")
+            if cash_difference is not None:
+                diff = float(cash_difference)
+                sign = "+" if diff >= 0 else "-"
+                lines.append(f"Diferencia de caja: {sign}{self.money(abs(diff))}")
+            self.show_message(f"Resumen · Jornada #{session_id}", "\n".join(lines))
+        except ValidationError as exc:
+            self.show_message("Jornada", str(exc))
+        except Exception:
+            LOGGER.exception("Could not show session summary")
+            self.show_message("Error", "No se pudo abrir el resumen de la jornada.")
 
     def fill_lists(self):
         self._fill_trip_list()
@@ -2068,6 +2615,15 @@ class DriverControlApp(MDApp):
             fuel_price = self._parse_non_negative_float(
                 screen.ids.fuel_price.text, "Precio de nafta", allow_zero=False
             )
+            assistant_min_hourly = self._parse_non_negative_float(
+                screen.ids.assistant_min_hourly.text, "Mínimo por hora", allow_zero=False
+            )
+            assistant_min_per_km = self._parse_non_negative_float(
+                screen.ids.assistant_min_per_km.text, "Mínimo por km", allow_zero=False
+            )
+            assistant_max_pickup_km = self._parse_non_negative_float(
+                screen.ids.assistant_max_pickup_km.text, "Pickup máximo", allow_zero=False
+            )
 
             with self.transaction():
                 self.conn.execute(
@@ -2089,6 +2645,18 @@ class DriverControlApp(MDApp):
                 self.conn.execute(
                     "INSERT OR REPLACE INTO settings(key,value) VALUES('fuel_price',?)",
                     (str(fuel_price),),
+                )
+                self.conn.execute(
+                    "INSERT OR REPLACE INTO settings(key,value) VALUES('assistant_min_hourly',?)",
+                    (str(assistant_min_hourly),),
+                )
+                self.conn.execute(
+                    "INSERT OR REPLACE INTO settings(key,value) VALUES('assistant_min_per_km',?)",
+                    (str(assistant_min_per_km),),
+                )
+                self.conn.execute(
+                    "INSERT OR REPLACE INTO settings(key,value) VALUES('assistant_max_pickup_km',?)",
+                    (str(assistant_max_pickup_km),),
                 )
 
             self.refresh_all()

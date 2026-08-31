@@ -53,10 +53,7 @@ LOG_FILE = "driver_control.log"
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
-    handlers=[
-        logging.FileHandler(LOG_FILE, encoding="utf-8"),
-        logging.StreamHandler(),
-    ],
+    handlers=[logging.StreamHandler()],
 )
 LOGGER = logging.getLogger(APP_NAME)
 
@@ -898,7 +895,9 @@ class DriverControlApp(MDApp):
         self.theme_cls.primary_palette = "LightBlue"
         self.payment_menu = None
 
-        self.conn = sqlite3.connect(DB_FILE)
+        data_dir = Path(self.user_data_dir)
+        data_dir.mkdir(parents=True, exist_ok=True)
+        self.conn = sqlite3.connect(str(data_dir / DB_FILE))
         self.conn.row_factory = sqlite3.Row
         self.conn.execute("PRAGMA foreign_keys = ON")
         self.conn.execute("PRAGMA journal_mode = WAL")
@@ -2037,7 +2036,7 @@ class DriverControlApp(MDApp):
 
     def export_database_to_csv(self):
         try:
-            export_path = Path("driver_control_export.csv")
+            export_path = Path(self.user_data_dir) / "driver_control_export.csv"
             cursor = self.conn.cursor()
             cursor.execute("SELECT id, created_at, amount, payment, km, duration FROM trips ORDER BY id DESC")
             trips = cursor.fetchall()

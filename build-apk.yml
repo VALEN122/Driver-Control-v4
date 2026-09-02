@@ -1,4 +1,4 @@
-name: Build Android APK
+name: Build Driver Control v5 APK
 
 on:
   workflow_dispatch:
@@ -8,19 +8,20 @@ on:
 jobs:
   build:
     runs-on: ubuntu-22.04
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build APK
+      - name: Build Android APK
         uses: ArtemSBulgakov/buildozer-action@v1
         id: buildozer
         with:
           command: buildozer android debug
           buildozer_version: stable
 
-      - name: Upload APK
+      - name: Upload Driver Control v5 APK
         uses: actions/upload-artifact@v4
         with:
-          name: DriverControl-v4.2-APK
+          name: Driver-Control-v5.0-UberFilter-OCR-APK
           path: bin/*.apk
           if-no-files-found: error

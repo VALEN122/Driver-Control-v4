@@ -11,6 +11,7 @@ from kivy.clock import Clock
 from kivy.metrics import dp
 from kivy.properties import ListProperty, NumericProperty, StringProperty
 from kivy.uix.screenmanager import Screen
+from kivy.utils import platform
 from kivymd.app import MDApp
 from kivymd.uix.boxlayout import MDBoxLayout
 from kivymd.uix.card import MDCard
@@ -30,7 +31,7 @@ from kivymd.uix.textfield import MDTextField
 # ============================================================
 
 APP_NAME = "Driver Control"
-APP_VERSION = "4.4.0"
+APP_VERSION = "5.0.0"
 DB_FILE = "driver_control.db"
 DATE_FORMAT = "%d/%m/%Y"
 DATETIME_FORMAT = "%d/%m/%Y %H:%M"
@@ -711,7 +712,7 @@ ScreenManager:
                     radius: [16,16,16,16]
                     md_bg_color: app.card_color
                     size_hint_y: None
-                    height: dp(190)
+                        height: dp(252)
 
                     MDLabel:
                         text: "Detalle de efectivo"
@@ -841,6 +842,42 @@ ScreenManager:
                         theme_text_color: "Custom"
                         text_color: app.muted_color
                         font_style: "Caption"
+
+                MDCard:
+                    orientation: "vertical"
+                    padding: dp(16)
+                    spacing: dp(8)
+                    radius: [18,18,18,18]
+                    md_bg_color: app.card_color
+                    size_hint_y: None
+                    height: dp(190)
+
+                    MDLabel:
+                        text: "Flotante sobre Uber"
+                        font_style: "H6"
+                        bold: True
+                        size_hint_y: None
+                        height: dp(34)
+
+                    MDLabel:
+                        text: "Lee SOLO la tarifa, minutos y kilómetros visibles en la solicitud de Uber y calcula el viaje en el teléfono. No toca Aceptar/Rechazar ni guarda nombres o direcciones."
+                        theme_text_color: "Custom"
+                        text_color: app.muted_color
+                        font_style: "Caption"
+                        size_hint_y: None
+                        height: dp(72)
+
+                    MDRaisedButton:
+                        text: "ACTIVAR FLOTANTE SOBRE UBER"
+                        size_hint_y: None
+                        height: dp(50)
+                        on_release: app.request_uber_overlay_access()
+
+                    MDRaisedButton:
+                        text: "ACTIVAR LECTURA VISUAL OCR"
+                        size_hint_y: None
+                        height: dp(50)
+                        on_release: app.request_uber_ocr()
 
                 MDTextField:
                     id: assistant_fare
@@ -1158,6 +1195,7 @@ class DriverControlApp(MDApp):
             self._clock_event = Clock.schedule_interval(self._tick_clock, 1)
             self._tick_clock(0)
             self.refresh_all()
+            self._sync_android_assistant_settings()
             LOGGER.info("Application started successfully. Version=%s", APP_VERSION)
         except Exception:
             LOGGER.exception("Fatal error during application startup.")
@@ -1714,6 +1752,120 @@ class DriverControlApp(MDApp):
             "color": color,
             "reasons": reasons,
         }
+
+    def _sync_android_assistant_settings(self):
+        """Copia al servicio Android solo parámetros numéricos del asistente."""
+        if platform != "android":
+            return
+        try:
+            from jnius import autoclass
+            PythonActivity = autoclass("org.kivy.android.PythonActivity")
+            activity = PythonActivity.mActivity
+            prefs = activity.getSharedPreferences("driver_control_overlay", 0)
+            editor = prefs.edit()
+            editor.putFloat("fuel_consumption", float(self._setting_float("fuel_consumption", DEFAULT_FUEL_CONSUMPTION)))
+            editor.putFloat("fuel_price", float(self._setting_float("fuel_price", DEFAULT_FUEL_PRICE)))
+            editor.putFloat("min_hourly", float(self._setting_float("assistant_min_hourly", DEFAULT_ASSISTANT_MIN_HOURLY)))
+            editor.putFloat("min_per_km", float(self._setting_float("assistant_min_per_km", DEFAULT_ASSISTANT_MIN_PER_KM)))
+            editor.putFloat("max_pickup_km", float(self._setting_float("assistant_max_pickup_km", DEFAULT_ASSISTANT_MAX_PICKUP_KM)))
+            editor.apply()
+        except Exception:
+            LOGGER.exception("Could not sync Android overlay settings")
+
+    def request_uber_overlay_access(self):
+        """Aviso destacado + acceso voluntario a Ajustes de accesibilidad Android."""
+        if platform != "android":
+            self.show_message("Solo Android", "El flotante sobre Uber funciona únicamente en Android.")
+            return
+
+        disclosure = (
+            "Para mostrar el análisis encima de Uber, Driver Control necesita que actives su "
+            "servicio de accesibilidad. Mientras Uber está en pantalla, el servicio lee el texto "
+            "visible de la solicitud y usa únicamente tarifa, minutos y kilómetros para calcular "
+            "$/hora, $/km y combustible. El cálculo se hace localmente en tu teléfono. No pulsa "
+            "Aceptar/Rechazar, no controla Uber y no guarda nombres ni direcciones. Podés desactivar "
+            "el permiso en cualquier momento desde Ajustes."
+        )
+        dialog = MDDialog(
+            title="Permiso para el flotante",
+            text=disclosure,
+            buttons=[],
+        )
+
+        def continue_to_settings(_button):
+            dialog.dismiss()
+            self._sync_android_assistant_settings()
+            try:
+                from jnius import autoclass
+                Intent = autoclass("android.content.Intent")
+                Settings = autoclass("android.provider.Settings")
+                PythonActivity = autoclass("org.kivy.android.PythonActivity")
+                activity = PythonActivity.mActivity
+                intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
+                activity.startActivity(intent)
+            except Exception:
+                LOGGER.exception("Could not open Android accessibility settings")
+                self.show_message("Permiso", "No se pudieron abrir los ajustes de accesibilidad.")
+
+        dialog.buttons = [
+            MDFlatButton(text="CANCELAR", on_release=lambda _x: dialog.dismiss()),
+            MDFlatButton(text="ENTIENDO Y CONTINUAR", on_release=continue_to_settings),
+        ]
+        dialog.open()
+
+    def request_uber_ocr(self):
+        """Solicita captura de pantalla de Android y arranca OCR local."""
+        if platform != "android":
+            self.show_message("Solo Android", "La lectura visual funciona únicamente en Android.")
+            return
+        try:
+            from android import activity as android_activity
+            from jnius import autoclass
+            Context = autoclass("android.content.Context")
+            PythonActivity = autoclass("org.kivy.android.PythonActivity")
+            current = PythonActivity.mActivity
+            manager = current.getSystemService(Context.MEDIA_PROJECTION_SERVICE)
+            try:
+                android_activity.unbind(on_activity_result=self._on_ocr_activity_result)
+            except Exception:
+                pass
+            android_activity.bind(on_activity_result=self._on_ocr_activity_result)
+            current.startActivityForResult(manager.createScreenCaptureIntent(), 9401)
+        except Exception:
+            LOGGER.exception("Could not request OCR screen capture")
+            self.show_message("Lectura visual", "No se pudo abrir el permiso de captura.")
+
+    def _on_ocr_activity_result(self, request_code, result_code, data):
+        if request_code != 9401:
+            return
+        try:
+            from android import activity as android_activity
+            android_activity.unbind(on_activity_result=self._on_ocr_activity_result)
+        except Exception:
+            pass
+        try:
+            from jnius import autoclass
+            Activity = autoclass("android.app.Activity")
+            if result_code != Activity.RESULT_OK or data is None:
+                self.show_message("Lectura visual", "Android no autorizó la captura.")
+                return
+            Intent = autoclass("android.content.Intent")
+            BuildVersion = autoclass("android.os.Build$VERSION")
+            PythonActivity = autoclass("org.kivy.android.PythonActivity")
+            OcrService = autoclass("org.drivercontrol.drivercontrol.OcrCaptureService")
+            current = PythonActivity.mActivity
+            service_intent = Intent(current, OcrService)
+            service_intent.setAction(OcrService.ACTION_START)
+            service_intent.putExtra(OcrService.EXTRA_RESULT_CODE, result_code)
+            service_intent.putExtra(OcrService.EXTRA_RESULT_DATA, data)
+            if BuildVersion.SDK_INT >= 26:
+                current.startForegroundService(service_intent)
+            else:
+                current.startService(service_intent)
+            self.show_message("Lectura visual activa", "Abrí Uber. Elegí compartir toda la pantalla.")
+        except Exception:
+            LOGGER.exception("Could not start OCR capture service")
+            self.show_message("Lectura visual", "No se pudo iniciar el lector OCR.")
 
     def analyze_trip_offer(self):
         screen = self.root.get_screen("assistant")
@@ -2659,6 +2811,7 @@ class DriverControlApp(MDApp):
                     (str(assistant_max_pickup_km),),
                 )
 
+            self._sync_android_assistant_settings()
             self.refresh_all()
             self.show_message("Configuración", "Cambios y valor de nafta actualizados correctamente.")
             LOGGER.info(

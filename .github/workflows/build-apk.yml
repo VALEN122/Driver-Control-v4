@@ -1,54 +1,27 @@
-name: Compilar APK
+name: Build Driver Control v5 APK
 
 on:
   workflow_dispatch:
   push:
-    branches:
-      - main
+    branches: [ "main" ]
 
 jobs:
   build:
     runs-on: ubuntu-22.04
-
+    timeout-minutes: 90
     steps:
-      - name: Descargar proyecto
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Instalar Java
-        uses: actions/setup-java@v4
+      - name: Build Android APK
+        uses: ArtemSBulgakov/buildozer-action@v1
+        id: buildozer
         with:
-          distribution: temurin
-          java-version: '17'
+          command: buildozer android debug
+          buildozer_version: stable
 
-      - name: Instalar dependencias
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            python3-pip \
-            python3-venv \
-            git \
-            zip \
-            unzip \
-            autoconf \
-            libtool \
-            pkg-config \
-            zlib1g-dev \
-            libncurses5-dev \
-            libncursesw5-dev \
-            libtinfo6 \
-            cmake \
-            libffi-dev \
-            libssl-dev
-          python3 -m pip install --upgrade pip
-          python3 -m pip install buildozer cython==0.29.36
-
-      - name: Compilar APK
-        run: |
-          buildozer android debug
-
-      - name: Guardar APK
+      - name: Upload Driver Control v5 APK
         uses: actions/upload-artifact@v4
         with:
-          name: Driver-Control-APK
+          name: Driver-Control-v5.0-UberFilter-OCR-APK
           path: bin/*.apk
           if-no-files-found: error

@@ -71,11 +71,11 @@ public class UberOfferAccessibilityService extends AccessibilityService {
     private static final Pattern MONEY = Pattern.compile(
             "(?i)(?<!\\+)(?:ARS\\s*|\\$\\s*)([0-9OIl|][0-9OIl|., ]*)");
     private static final Pattern MINUTES = Pattern.compile(
-            "(?i)([0-9]+(?:[.,][0-9]+)?)\\s*(?:min|minuto|minutos)\\b");
+            "(?i)([0-9]+(?:[.,][0-9]+)?)\\s*(?:min\\.?|minuto(?:s)?)\\b");
     private static final Pattern KM = Pattern.compile(
-            "(?i)([0-9]+(?:[.,][0-9]+)?)\\s*km\\b");
+            "(?i)([0-9]+(?:[.,][0-9]+)?)\\s*(?:km|kil[oó]metro(?:s)?)\\b");
     private static final Pattern PAIRED = Pattern.compile(
-            "(?i)([0-9]+(?:[.,][0-9]+)?)\\s*(?:min|minuto|minutos)\\b.{0,40}?([0-9]+(?:[.,][0-9]+)?)\\s*km\\b");
+            "(?i)([0-9]+(?:[.,][0-9]+)?)\\s*(?:min\\.?|minuto(?:s)?)\\b.{0,70}?([0-9]+(?:[.,][0-9]+)?)\\s*(?:km|kil[oó]metro(?:s)?)\\b");
 
     @Override
     protected void onServiceConnected() {
@@ -209,7 +209,9 @@ public class UberOfferAccessibilityService extends AccessibilityService {
         String lower = joined.toLowerCase(Locale.ROOT);
         boolean offerHint = lower.contains("viaje") || lower.contains("solicitud") ||
                 lower.contains("acept") || lower.contains("uberx") || lower.contains("comfort") ||
-                lower.contains("para llegar") || lower.contains("recoger");
+                lower.contains("para llegar") || lower.contains("recoger") ||
+                lower.contains("destino") || lower.contains("min de distancia") ||
+                lower.contains("incluye") || lower.contains("exclusivo");
         if (!offerHint) return null;
 
         return new Offer(fare, pickupMin, pickupKm, tripMin, tripKm);

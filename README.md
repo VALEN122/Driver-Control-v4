@@ -16,3 +16,12 @@ Dashboard, viajes, caja, jornadas, gastos y combustible. Cuando Accesibilidad no
 expone la tarjeta de Uber, el conductor puede activar **LECTURA VISUAL OCR** y
 autorizar **Toda la pantalla**. ML Kit procesa localmente el sector inferior,
 no guarda capturas y corrige confusiones como `ARS8,9I6` → `$8.916`.
+
+### Activación correcta
+
+1. Tocá **ACTIVAR FLOTANTE SOBRE UBER** y habilitá Driver Control en Accesibilidad.
+2. Volvé a Driver Control y tocá **ACTIVAR LECTURA VISUAL OCR**.
+3. Elegí **Toda la pantalla** en el permiso de Android y abrí Uber Driver.
+
+Ambos permisos son necesarios: Accesibilidad muestra la burbuja y OCR lee la
+tarjeta cuando Uber no expone sus números como texto accesible.

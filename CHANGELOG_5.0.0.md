@@ -7,3 +7,11 @@
 - Rechazo de falsos precios menores a $100, incluida la propia burbuja.
 - Procesamiento limitado a una imagen cada 800 ms y al 70% inferior.
 - Las capturas no se guardan ni se transmiten.
+
+## 5.0.1
+
+- Corrige la tarjeta del asistente que recortaba el botón de OCR.
+- Verifica que Accesibilidad esté habilitada antes de iniciar la captura visual.
+- Reconoce más variantes de minutos y kilómetros usadas por Uber/OCR.
+- Amplía las pistas de detección sin aceptar pantallas numéricas genéricas.
+- Documenta el orden correcto de activación de los dos permisos.

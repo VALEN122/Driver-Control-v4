@@ -850,7 +850,9 @@ ScreenManager:
                     radius: [18,18,18,18]
                     md_bg_color: app.card_color
                     size_hint_y: None
-                    height: dp(190)
+                    # Dos permisos independientes: accesibilidad + captura OCR.
+                    # 190 dp recortaba el segundo botón en varios teléfonos.
+                    height: dp(285)
 
                     MDLabel:
                         text: "Flotante sobre Uber"
@@ -1822,8 +1824,23 @@ class DriverControlApp(MDApp):
             from android import activity as android_activity
             from jnius import autoclass
             Context = autoclass("android.content.Context")
+            SettingsSecure = autoclass("android.provider.Settings$Secure")
             PythonActivity = autoclass("org.kivy.android.PythonActivity")
             current = PythonActivity.mActivity
+            enabled = SettingsSecure.getString(
+                current.getContentResolver(),
+                SettingsSecure.ENABLED_ACCESSIBILITY_SERVICES,
+            ) or ""
+            component = (
+                current.getPackageName()
+                + "/org.drivercontrol.drivercontrol.UberOfferAccessibilityService"
+            )
+            if component.lower() not in enabled.lower():
+                self.show_message(
+                    "Primero activá el flotante",
+                    "Entrá en ACTIVAR FLOTANTE SOBRE UBER, habilitá Driver Control y después volvé a tocar LECTURA VISUAL OCR.",
+                )
+                return
             manager = current.getSystemService(Context.MEDIA_PROJECTION_SERVICE)
             try:
                 android_activity.unbind(on_activity_result=self._on_ocr_activity_result)

@@ -1,16 +1,19 @@
-SEWDDDFname: Build Driver Control v5 APK
+name: Build Driver Control v5 APK
 
 on:
   workflow_dispatch:
   push:
-    branches: [ "main" ]
+    branches:
+      - main
 
 jobs:
   build:
     runs-on: ubuntu-22.04
     timeout-minutes: 90
+
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -22,23 +25,30 @@ jobs:
         env:
           JAVA_HOME: ${{ env.JAVA_HOME_17_X64 }}
         run: |
+          java -version
           cp buildozer.spec buildozer.spec.complete
+
           sed -i '/^android.extra_manifest_application_arguments[[:space:]]*=/d' buildozer.spec
-          docker run --rm -v "$PWD":/home/user/hostcwd ghcr.io/kivy/buildozer:latest android debug
+
+          docker run --rm \
+            -v "$PWD":/home/user/hostcwd \
+            ghcr.io/kivy/buildozer:latest \
+            android debug
+
           mv buildozer.spec.complete buildozer.spec
 
-          MANIFEST_PATH=$(find .buildozer/android/platform -path '*/dists/drivercontrol/src/main/AndroidManifest.xml' -print -quit)
-          DIST_DIR=$(dirname "$(dirname "$(dirname "$MANIFEST_PATH")")")
-          sudo sed -i '/<\/application>/e cat android_manifest/application_services.xml' "$MANIFEST_PATH"
-          sudo bash -c "cd '$DIST_DIR' && ./gradlew clean assembleDebug"
+          APK_PATH=$(find bin -type f -name "*.apk" -print -quit)
 
-          APK_PATH=$(find "$DIST_DIR/build/outputs/apk/debug" -name '*.apk' -print -quit)
-          sudo cp "$APK_PATH" bin/driver-control-v5.0-debug.apk
-          sudo chown "$(id -u):$(id -g)" bin/driver-control-v5.0-debug.apk
+          if [ -z "$APK_PATH" ]; then
+            echo "ERROR: No se genero ningun APK"
+            exit 1
+          fi
 
-      - name: Upload Driver Control v5 APK
+          echo "APK generado: $APK_PATH"
+
+      - name: Upload Driver Control APK
         uses: actions/upload-artifact@v4
         with:
-          name: Driver-Control-v5.0-UberFilter-OCR-APK
+          name: Driver-Control-v5-APK
           path: bin/*.apk
           if-no-files-found: error

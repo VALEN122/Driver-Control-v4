@@ -4,10 +4,10 @@ package.name = drivercontrol
 package.domain = org.drivercontrol
 source.dir = .
 source.include_exts = py,png,jpg,jpeg,kv,atlas,xml,java,md
-version = 5.0.1
+version = 5.1.0
 requirements = python3==3.11.5,hostpython3==3.11.5,kivy==2.3.0,kivymd==1.2.0
 android.gradle_dependencies = com.google.mlkit:text-recognition:16.0.1
-android.permissions = FOREGROUND_SERVICE,FOREGROUND_SERVICE_MEDIA_PROJECTION,POST_NOTIFICATIONS
+android.permissions = FOREGROUND_SERVICE,FOREGROUND_SERVICE_MEDIA_PROJECTION,POST_NOTIFICATIONS,SYSTEM_ALERT_WINDOW
 orientation = portrait
 fullscreen = 0
 android.api = 33

@@ -20,8 +20,8 @@ import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.IBinder;
 import android.os.SystemClock;
+import android.provider.Settings;
 import android.util.DisplayMetrics;
-import android.view.WindowManager;
 
 import com.google.mlkit.vision.common.InputImage;
 import com.google.mlkit.vision.text.TextRecognition;
@@ -63,6 +63,7 @@ public class OcrCaptureService extends Service {
         if (ACTION_STOP.equals(intent.getAction())) { stopSelf(); return START_NOT_STICKY; }
         if (!ACTION_START.equals(intent.getAction()) || projection != null) return START_NOT_STICKY;
         startForeground(52, buildNotification());
+        startOverlayIfAllowed();
         int resultCode = intent.getIntExtra(EXTRA_RESULT_CODE, Activity.RESULT_CANCELED);
         Intent data;
         if (Build.VERSION.SDK_INT >= 33) data = intent.getParcelableExtra(EXTRA_RESULT_DATA, Intent.class);
@@ -79,8 +80,7 @@ public class OcrCaptureService extends Service {
         DisplayMetrics metrics = getResources().getDisplayMetrics();
         int width = metrics.widthPixels;
         int height = metrics.heightPixels;
-        MediaProjectionManager manager = (MediaProjectionManager)
-                getSystemService(MEDIA_PROJECTION_SERVICE);
+        MediaProjectionManager manager = (MediaProjectionManager) getSystemService(MEDIA_PROJECTION_SERVICE);
         projection = manager.getMediaProjection(resultCode, data);
         projection.registerCallback(new MediaProjection.Callback() {
             @Override public void onStop() { stopSelf(); }
@@ -96,43 +96,54 @@ public class OcrCaptureService extends Service {
         Image image = source.acquireLatestImage();
         if (image == null) return;
         long now = SystemClock.elapsedRealtime();
-        if (processing || now - lastFrameAt < 800L) { image.close(); return; }
+        // Menos frecuencia que la v5.0.1 para evitar tirones durante la conducción.
+        if (processing || now - lastFrameAt < 1100L) { image.close(); return; }
         processing = true;
         lastFrameAt = now;
         Bitmap full;
         try {
             Image.Plane plane = image.getPlanes()[0];
             int rowPadding = plane.getRowStride() - plane.getPixelStride() * width;
-            full = Bitmap.createBitmap(width + rowPadding / plane.getPixelStride(), height,
-                    Bitmap.Config.ARGB_8888);
+            full = Bitmap.createBitmap(width + rowPadding / plane.getPixelStride(), height, Bitmap.Config.ARGB_8888);
             full.copyPixelsFromBuffer(plane.getBuffer());
         } catch (Throwable error) {
             image.close(); processing = false; return;
         }
         image.close();
-        int cropTop = Math.round(height * 0.30f);
+        int cropTop = Math.round(height * 0.28f);
         Bitmap card = Bitmap.createBitmap(full, 0, cropTop, width, height - cropTop);
         full.recycle();
         recognizer.process(InputImage.fromBitmap(card, 0))
                 .addOnSuccessListener(result -> {
                     String text = result.getText();
-                    getSharedPreferences("driver_control_overlay", MODE_PRIVATE).edit()
-                            .putString("last_ocr_text", text.substring(0, Math.min(1500, text.length())))
-                            .apply();
-                    sendBroadcast(new Intent(UberOfferAccessibilityService.ACTION_OCR_TEXT)
-                            .setPackage(getPackageName())
-                            .putExtra(UberOfferAccessibilityService.EXTRA_OCR_TEXT, text));
+                    if (text != null && !text.trim().isEmpty()) {
+                        sendBroadcast(new Intent(DriverOverlayService.ACTION_SOURCE_TEXT)
+                                .setPackage(getPackageName())
+                                .putExtra(DriverOverlayService.EXTRA_SOURCE_TEXT, text)
+                                .putExtra(DriverOverlayService.EXTRA_SOURCE_KIND, "ocr"));
+                    }
                 })
                 .addOnCompleteListener(task -> { card.recycle(); processing = false; });
+    }
+
+    private void startOverlayIfAllowed() {
+        if (!Settings.canDrawOverlays(this)) return;
+        try {
+            Intent i = new Intent(this, DriverOverlayService.class).setAction(DriverOverlayService.ACTION_START);
+            if (Build.VERSION.SDK_INT >= 26) startForegroundService(i); else startService(i);
+        } catch (Exception ignored) {}
     }
 
     private Notification buildNotification() {
         PendingIntent stop = PendingIntent.getService(this, 53,
                 new Intent(this, OcrCaptureService.class).setAction(ACTION_STOP),
                 PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
-        return new Notification.Builder(this, CHANNEL)
+        Notification.Builder builder = Build.VERSION.SDK_INT >= 26
+                ? new Notification.Builder(this, CHANNEL)
+                : new Notification.Builder(this);
+        return builder
                 .setContentTitle("Driver Control: lectura visual activa")
-                .setContentText("Las ofertas se analizan localmente")
+                .setContentText("OCR local como respaldo del filtro de viajes")
                 .setSmallIcon(android.R.drawable.ic_menu_camera)
                 .addAction(android.R.drawable.ic_delete, "Detener", stop)
                 .build();
@@ -146,6 +157,7 @@ public class OcrCaptureService extends Service {
         if (recognizer != null) recognizer.close();
         if (thread != null) thread.quitSafely();
         projection = null;
+        stopForeground(true);
         super.onDestroy();
     }
 

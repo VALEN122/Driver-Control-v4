@@ -31,7 +31,7 @@ from kivymd.uix.textfield import MDTextField
 # ============================================================
 
 APP_NAME = "Driver Control"
-APP_VERSION = "5.0.0"
+APP_VERSION = "5.1.0"
 DB_FILE = "driver_control.db"
 DATE_FORMAT = "%d/%m/%Y"
 DATETIME_FORMAT = "%d/%m/%Y %H:%M"
@@ -42,7 +42,7 @@ DEFAULT_VEHICLE = "Volkswagen Gol Trend 2015"
 DEFAULT_FUEL_CONSUMPTION = 8.0  # L/100 km
 DEFAULT_FUEL_PRICE = 2048.0  # $/L; editable en Configuración
 DEFAULT_ASSISTANT_MIN_HOURLY = 15000.0
-DEFAULT_ASSISTANT_MIN_PER_KM = 500.0
+DEFAULT_ASSISTANT_MIN_PER_KM = 300.0
 DEFAULT_ASSISTANT_MAX_PICKUP_KM = 3.0
 
 PAYMENT_CASH = "Efectivo"
@@ -611,6 +611,21 @@ ScreenManager:
             height: dp(48)
             on_release: app.open_fuel_dialog()
 
+        MDFlatButton:
+            text: "BORRAR ÚLTIMA CARGA"
+            size_hint_y: None
+            height: dp(44)
+            on_release: app.confirm_delete_latest_fuel()
+
+        MDLabel:
+            text: "También podés tocar cualquier carga del historial para eliminarla."
+            theme_text_color: "Custom"
+            text_color: app.muted_color
+            font_style: "Caption"
+            size_hint_y: None
+            height: dp(34)
+            halign: "center"
+
         ScrollView:
             MDList:
                 id: fuel_list
@@ -712,7 +727,7 @@ ScreenManager:
                     radius: [16,16,16,16]
                     md_bg_color: app.card_color
                     size_hint_y: None
-                    height: dp(252)
+                        height: dp(252)
 
                     MDLabel:
                         text: "Detalle de efectivo"
@@ -850,9 +865,7 @@ ScreenManager:
                     radius: [18,18,18,18]
                     md_bg_color: app.card_color
                     size_hint_y: None
-                    # Dos permisos independientes: accesibilidad + captura OCR.
-                    # 190 dp recortaba el segundo botón en varios teléfonos.
-                    height: dp(285)
+                    height: dp(430)
 
                     MDLabel:
                         text: "Flotante sobre Uber"
@@ -862,24 +875,42 @@ ScreenManager:
                         height: dp(34)
 
                     MDLabel:
-                        text: "Lee SOLO la tarifa, minutos y kilómetros visibles en la solicitud de Uber y calcula el viaje en el teléfono. No toca Aceptar/Rechazar ni guarda nombres o direcciones."
+                        text: "El flotante y el vuelto funcionan sin depender de Accesibilidad. Para leer ofertas podés usar Accesibilidad (rápida) u OCR (respaldo)."
                         theme_text_color: "Custom"
                         text_color: app.muted_color
                         font_style: "Caption"
                         size_hint_y: None
-                        height: dp(72)
+                        height: dp(66)
 
                     MDRaisedButton:
-                        text: "ACTIVAR FLOTANTE SOBRE UBER"
+                        text: "ACTIVAR ASISTENTE + VUELTO"
                         size_hint_y: None
                         height: dp(50)
                         on_release: app.request_uber_overlay_access()
 
                     MDRaisedButton:
-                        text: "ACTIVAR LECTURA VISUAL OCR"
+                        text: "LECTURA RÁPIDA (ACCESIBILIDAD)"
+                        size_hint_y: None
+                        height: dp(50)
+                        on_release: app.request_uber_accessibility()
+
+                    MDRaisedButton:
+                        text: "ACTIVAR OCR (RESPALDO)"
                         size_hint_y: None
                         height: dp(50)
                         on_release: app.request_uber_ocr()
+
+                    MDFlatButton:
+                        text: "DETENER OCR"
+                        size_hint_y: None
+                        height: dp(44)
+                        on_release: app.stop_uber_ocr()
+
+                    MDFlatButton:
+                        text: "DETENER FLOTANTE"
+                        size_hint_y: None
+                        height: dp(44)
+                        on_release: app.stop_driver_overlay()
 
                 MDTextField:
                     id: assistant_fare
@@ -1702,7 +1733,12 @@ class DriverControlApp(MDApp):
         fuel_score = 15.0 * self._clamp(1.0 - fuel_ratio, 0.0, 1.0)
         score = self._clamp(hourly_score + km_score + pickup_score + destination_score + fuel_score, 0.0, 100.0)
 
-        if score >= 80:
+        # Regla dura configurable: si el viaje queda por debajo del mínimo por km,
+        # se rechaza la recomendación aunque el puntaje general sea alto.
+        if per_km_est < min_per_km:
+            recommendation = "NO CONVIENE"
+            color = (0.86, 0.16, 0.18, 1)
+        elif score >= 80:
             recommendation = "EXCELENTE"
             color = (0.05, 0.60, 0.26, 1)
         elif score >= 65:
@@ -1774,63 +1810,130 @@ class DriverControlApp(MDApp):
         except Exception:
             LOGGER.exception("Could not sync Android overlay settings")
 
-    def request_uber_overlay_access(self):
-        """Aviso destacado + acceso voluntario a Ajustes de accesibilidad Android."""
+    def _start_driver_overlay_service(self) -> bool:
         if platform != "android":
-            self.show_message(
-                "Solo Android",
-                "El flotante sobre Uber funciona únicamente en Android."
-            )
+            return False
+        try:
+            from jnius import autoclass
+            Settings = autoclass("android.provider.Settings")
+            Intent = autoclass("android.content.Intent")
+            BuildVersion = autoclass("android.os.Build$VERSION")
+            PythonActivity = autoclass("org.kivy.android.PythonActivity")
+            OverlayService = autoclass("org.drivercontrol.drivercontrol.DriverOverlayService")
+            current = PythonActivity.mActivity
+            if not Settings.canDrawOverlays(current):
+                return False
+            intent = Intent(current, OverlayService)
+            intent.setAction(OverlayService.ACTION_START)
+            if BuildVersion.SDK_INT >= 26:
+                current.startForegroundService(intent)
+            else:
+                current.startService(intent)
+            return True
+        except Exception:
+            LOGGER.exception("Could not start DriverOverlayService")
+            return False
+
+    def request_uber_overlay_access(self):
+        """Activa el flotante independiente y la burbuja de vuelto."""
+        if platform != "android":
+            self.show_message("Solo Android", "El flotante sobre Uber funciona únicamente en Android.")
             return
+        try:
+            from jnius import autoclass
+            Settings = autoclass("android.provider.Settings")
+            Intent = autoclass("android.content.Intent")
+            Uri = autoclass("android.net.Uri")
+            PythonActivity = autoclass("org.kivy.android.PythonActivity")
+            current = PythonActivity.mActivity
+            if Settings.canDrawOverlays(current):
+                self._sync_android_assistant_settings()
+                if self._start_driver_overlay_service():
+                    self.show_message(
+                        "Flotante activo",
+                        "Vas a ver una burbuja $ sobre Uber para calcular el vuelto. "
+                        "El análisis de viajes aparecerá arriba cuando Accesibilidad u OCR detecten una oferta.",
+                    )
+                return
 
+            self._pending_overlay_start = True
+            intent = Intent(
+                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                Uri.parse("package:" + current.getPackageName()),
+            )
+            current.startActivity(intent)
+        except Exception:
+            LOGGER.exception("Could not request overlay permission")
+            self.show_message("Permiso", "No se pudo abrir el permiso para mostrar el flotante.")
+
+    def on_resume(self):
+        if not getattr(self, "_pending_overlay_start", False):
+            return
+        self._pending_overlay_start = False
+
+        def _finish(_dt):
+            self._sync_android_assistant_settings()
+            if self._start_driver_overlay_service():
+                self.show_message("Flotante activo", "Listo. La burbuja $ queda disponible sobre Uber.")
+            else:
+                self.show_message(
+                    "Falta permiso",
+                    "Activá 'Mostrar sobre otras apps' para Driver Control y tocá otra vez ACTIVAR ASISTENTE + VUELTO.",
+                )
+        Clock.schedule_once(_finish, 0.35)
+
+    def stop_driver_overlay(self):
+        if platform != "android":
+            return
+        try:
+            from jnius import autoclass
+            Intent = autoclass("android.content.Intent")
+            PythonActivity = autoclass("org.kivy.android.PythonActivity")
+            OverlayService = autoclass("org.drivercontrol.drivercontrol.DriverOverlayService")
+            current = PythonActivity.mActivity
+            intent = Intent(current, OverlayService)
+            intent.setAction(OverlayService.ACTION_STOP)
+            current.startService(intent)
+            self.show_message("Flotante detenido", "Se cerró el asistente y la burbuja de vuelto.")
+        except Exception:
+            LOGGER.exception("Could not stop DriverOverlayService")
+
+    def request_uber_accessibility(self):
+        """Accesibilidad queda como fuente opcional y optimizada de texto."""
+        if platform != "android":
+            self.show_message("Solo Android", "La lectura por accesibilidad funciona únicamente en Android.")
+            return
         disclosure = (
-            "Para mostrar el análisis encima de Uber, Driver Control necesita que actives su "
-            "servicio de accesibilidad. Mientras Uber está en pantalla, el servicio lee el texto "
-            "visible de la solicitud y usa únicamente tarifa, minutos y kilómetros para calcular "
-            "$/hora, $/km y combustible. El cálculo se hace localmente en tu teléfono. No pulsa "
-            "Aceptar/Rechazar, no controla Uber y no guarda nombres ni direcciones. Podés desactivar "
-            "el permiso en cualquier momento desde Ajustes."
+            "Accesibilidad se usa solo para leer tarifa, minutos y kilómetros visibles en Uber. "
+            "No pulsa botones ni acepta viajes. En esta versión el recorrido de pantalla está limitado "
+            "para reducir tirones. Si notás lentitud, podés apagar Accesibilidad y usar OCR como respaldo; "
+            "el flotante y el vuelto seguirán funcionando."
         )
-
-        dialog = None
+        dialog = MDDialog(title="Lectura rápida", text=disclosure, buttons=[])
 
         def continue_to_settings(_button):
             dialog.dismiss()
             self._sync_android_assistant_settings()
+            self._start_driver_overlay_service()
             try:
                 from jnius import autoclass
                 Intent = autoclass("android.content.Intent")
                 Settings = autoclass("android.provider.Settings")
                 PythonActivity = autoclass("org.kivy.android.PythonActivity")
-                activity = PythonActivity.mActivity
-                intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
-                activity.startActivity(intent)
+                current = PythonActivity.mActivity
+                current.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
             except Exception:
                 LOGGER.exception("Could not open Android accessibility settings")
-                self.show_message(
-                    "Permiso",
-                    "No se pudieron abrir los ajustes de accesibilidad."
-                )
+                self.show_message("Permiso", "No se pudieron abrir los ajustes de accesibilidad.")
 
-        dialog = MDDialog(
-            title="Permiso para el flotante",
-            text=disclosure,
-            buttons=[
-                MDFlatButton(
-                    text="CANCELAR",
-                    on_release=lambda _x: dialog.dismiss(),
-                ),
-                MDFlatButton(
-                    text="ENTIENDO Y CONTINUAR",
-                    on_release=continue_to_settings,
-                ),
-            ],
-        )
+        dialog.buttons = [
+            MDFlatButton(text="CANCELAR", on_release=lambda _x: dialog.dismiss()),
+            MDFlatButton(text="CONTINUAR", on_release=continue_to_settings),
+        ]
         dialog.open()
 
-
     def request_uber_ocr(self):
-        """Solicita captura de pantalla de Android y arranca OCR local."""
+        """Solicita captura de pantalla de Android y arranca OCR local, sin depender de Accesibilidad."""
         if platform != "android":
             self.show_message("Solo Android", "La lectura visual funciona únicamente en Android.")
             return
@@ -1838,23 +1941,16 @@ class DriverControlApp(MDApp):
             from android import activity as android_activity
             from jnius import autoclass
             Context = autoclass("android.content.Context")
-            SettingsSecure = autoclass("android.provider.Settings$Secure")
+            Settings = autoclass("android.provider.Settings")
             PythonActivity = autoclass("org.kivy.android.PythonActivity")
             current = PythonActivity.mActivity
-            enabled = SettingsSecure.getString(
-                current.getContentResolver(),
-                SettingsSecure.ENABLED_ACCESSIBILITY_SERVICES,
-            ) or ""
-            component = (
-                current.getPackageName()
-                + "/org.drivercontrol.drivercontrol.UberOfferAccessibilityService"
-            )
-            if component.lower() not in enabled.lower():
+            if not Settings.canDrawOverlays(current):
                 self.show_message(
                     "Primero activá el flotante",
-                    "Entrá en ACTIVAR FLOTANTE SOBRE UBER, habilitá Driver Control y después volvé a tocar LECTURA VISUAL OCR.",
+                    "Tocá ACTIVAR ASISTENTE + VUELTO y habilitá 'Mostrar sobre otras apps'.",
                 )
                 return
+            self._start_driver_overlay_service()
             manager = current.getSystemService(Context.MEDIA_PROJECTION_SERVICE)
             try:
                 android_activity.unbind(on_activity_result=self._on_ocr_activity_result)
@@ -1865,6 +1961,22 @@ class DriverControlApp(MDApp):
         except Exception:
             LOGGER.exception("Could not request OCR screen capture")
             self.show_message("Lectura visual", "No se pudo abrir el permiso de captura.")
+
+    def stop_uber_ocr(self):
+        if platform != "android":
+            return
+        try:
+            from jnius import autoclass
+            Intent = autoclass("android.content.Intent")
+            PythonActivity = autoclass("org.kivy.android.PythonActivity")
+            OcrService = autoclass("org.drivercontrol.drivercontrol.OcrCaptureService")
+            current = PythonActivity.mActivity
+            intent = Intent(current, OcrService)
+            intent.setAction(OcrService.ACTION_STOP)
+            current.startService(intent)
+            self.show_message("OCR detenido", "La lectura visual se detuvo. El flotante y el vuelto siguen activos.")
+        except Exception:
+            LOGGER.exception("Could not stop OCR service")
 
     def _on_ocr_activity_result(self, request_code, result_code, data):
         if request_code != 9401:
@@ -2345,13 +2457,20 @@ class DriverControlApp(MDApp):
             item = TwoLineListItem(
                 text=f"{self.money(row['amount'])} · {row['liters']:.2f} L",
                 secondary_text=(
-                    f"{row['created_at']} · {row['odometer']:.0f} km · Tocá para eliminar"
+                    f"{row['created_at']} · {row['odometer']:.0f} km · TOCÁ PARA ELIMINAR"
                 ),
             )
             item.bind(
                 on_release=lambda _x, fuel_id=row["id"]: self.confirm_delete_fuel(fuel_id)
             )
             target.add_widget(item)
+
+    def confirm_delete_latest_fuel(self):
+        row = self.conn.execute("SELECT id FROM fuel ORDER BY id DESC LIMIT 1").fetchone()
+        if row is None:
+            self.show_message("Combustible", "No hay cargas para eliminar.")
+            return
+        self.confirm_delete_fuel(int(row["id"]))
 
     def confirm_delete_fuel(self, fuel_id: int):
         dialog = MDDialog(
@@ -2861,64 +2980,7 @@ class DriverControlApp(MDApp):
                 "Error inesperado",
                 "No se pudo guardar la configuración.",
             )
-dialog.dismiss()
-            self.refresh_all()
-            LOGGER.info("Expense saved: category=%s amount=%s", category, amount)
 
-        except ValidationError as exc:
-            self.show_message("Revisá los datos", str(exc))
-        except Exception:
-            LOGGER.exception("Unexpected error while saving expense.")
-            self.show_message(
-                "Error inesperado",
-                "No se pudo guardar el gasto.",
-            )
-
-    def open_fuel_dialog(self):
-        if self._active_session() is None:
-            self.show_message("Abrí una jornada", "Primero abrí la jornada para registrar combustible.")
-            return
-        fields = [
-            ("liters", "Litros cargados", True),
-            ("amount", "Importe total ($)", True),
-            ("odometer", "Odómetro actual (km)", True),
-            ("payment", "Pago: Efectivo / Mercado Pago / Otro", False),
-        ]
-        self.input_dialog("Cargar combustible", fields, self.save_fuel)
-
-    def save_fuel(self, dialog, widgets):
-        try:
-            session_id = self._require_active_session()
-            liters = self._parse_non_negative_float(widgets["liters"].text, "Litros", allow_zero=False)
-            amount = self._parse_non_negative_float(widgets["amount"].text, "Importe", allow_zero=False)
-            odometer = self._parse_non_negative_float(widgets["odometer"].text, "Odómetro", allow_zero=False)
-            payment = self._normalize_payment(widgets["payment"].text)
-            now = datetime.now().strftime(DATETIME_FORMAT)
-
-            with self.transaction():
-                self.conn.execute(
-                    """
-                    INSERT INTO fuel(created_at, amount, liters, odometer, session_id, payment)
-                    VALUES(?,?,?,?,?,?)
-                    """,
-                    (now, amount, liters, odometer, session_id, payment),
-                )
-                self.conn.execute(
-                    """
-                    INSERT INTO expenses(created_at, category, description, amount, payment, session_id)
-                    VALUES(?,?,?,?,?,?)
-                    """,
-                    (now, "Combustible", f"Carga de {liters:.2f} L", amount, payment, session_id),
-                )
-                
-            dialog.dismiss()
-            self.refresh_all()
-            LOGGER.info("Fuel saved: liters=%s amount=%s", liters, amount)
-        except ValidationError as exc:
-            self.show_message("Revisá los datos", str(exc))
-        except Exception:
-            LOGGER.exception("Unexpected error while saving fuel.")
-            self.show_message("Error", "No se pudo registrar la carga de combustible.")
     def export_database_to_csv(self):
         try:
             export_path = Path(self.user_data_dir) / "driver_control_export.csv"

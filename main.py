@@ -1788,11 +1788,20 @@ class DriverControlApp(MDApp):
             "Aceptar/Rechazar, no controla Uber y no guarda nombres ni direcciones. Podés desactivar "
             "el permiso en cualquier momento desde Ajustes."
         )
-        dialog = MDDialog(
-            title="Permiso para el flotante",
-            text=disclosure,
-            buttons=[],
-        )
+     dialog = MDDialog(
+    title="Permiso para el flotante",
+    text=disclosure,
+    buttons=[
+        MDFlatButton(
+            text="CANCELAR",
+            on_release=lambda _x: dialog.dismiss()
+        ),
+        MDFlatButton(
+            text="ENTIENDO Y CONTINUAR",
+            on_release=continue_to_settings
+        ),
+    ],
+)dialog.open()
 
         def continue_to_settings(_button):
             dialog.dismiss()
@@ -1809,11 +1818,7 @@ class DriverControlApp(MDApp):
                 LOGGER.exception("Could not open Android accessibility settings")
                 self.show_message("Permiso", "No se pudieron abrir los ajustes de accesibilidad.")
 
-        dialog.buttons = [
-            MDFlatButton(text="CANCELAR", on_release=lambda _x: dialog.dismiss()),
-            MDFlatButton(text="ENTIENDO Y CONTINUAR", on_release=continue_to_settings),
-        ]
-        dialog.open()
+        
 
     def request_uber_ocr(self):
         """Solicita captura de pantalla de Android y arranca OCR local."""

@@ -1777,7 +1777,10 @@ class DriverControlApp(MDApp):
     def request_uber_overlay_access(self):
         """Aviso destacado + acceso voluntario a Ajustes de accesibilidad Android."""
         if platform != "android":
-            self.show_message("Solo Android", "El flotante sobre Uber funciona únicamente en Android.")
+            self.show_message(
+                "Solo Android",
+                "El flotante sobre Uber funciona únicamente en Android."
+            )
             return
 
         disclosure = (
@@ -1788,20 +1791,8 @@ class DriverControlApp(MDApp):
             "Aceptar/Rechazar, no controla Uber y no guarda nombres ni direcciones. Podés desactivar "
             "el permiso en cualquier momento desde Ajustes."
         )
-     dialog = MDDialog(
-    title="Permiso para el flotante",
-    text=disclosure,
-    buttons=[
-        MDFlatButton(
-            text="CANCELAR",
-            on_release=lambda _x: dialog.dismiss()
-        ),
-        MDFlatButton(
-            text="ENTIENDO Y CONTINUAR",
-            on_release=continue_to_settings
-        ),
-    ],
-)dialog.open()
+
+        dialog = None
 
         def continue_to_settings(_button):
             dialog.dismiss()
@@ -1816,9 +1807,27 @@ class DriverControlApp(MDApp):
                 activity.startActivity(intent)
             except Exception:
                 LOGGER.exception("Could not open Android accessibility settings")
-                self.show_message("Permiso", "No se pudieron abrir los ajustes de accesibilidad.")
+                self.show_message(
+                    "Permiso",
+                    "No se pudieron abrir los ajustes de accesibilidad."
+                )
 
-        
+        dialog = MDDialog(
+            title="Permiso para el flotante",
+            text=disclosure,
+            buttons=[
+                MDFlatButton(
+                    text="CANCELAR",
+                    on_release=lambda _x: dialog.dismiss(),
+                ),
+                MDFlatButton(
+                    text="ENTIENDO Y CONTINUAR",
+                    on_release=continue_to_settings,
+                ),
+            ],
+        )
+        dialog.open()
+
 
     def request_uber_ocr(self):
         """Solicita captura de pantalla de Android y arranca OCR local."""

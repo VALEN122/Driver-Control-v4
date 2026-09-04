@@ -6,7 +6,6 @@ source.dir = .
 source.include_exts = py,png,jpg,jpeg,kv,atlas,xml,java,md
 version = 5.1.0
 requirements = python3,kivy,kivymd,hostpython3,android,pyjnius
-
 android.gradle_dependencies = com.google.mlkit:text-recognition:16.0.1
 android.permissions = FOREGROUND_SERVICE,FOREGROUND_SERVICE_MEDIA_PROJECTION,POST_NOTIFICATIONS,SYSTEM_ALERT_WINDOW
 orientation = portrait

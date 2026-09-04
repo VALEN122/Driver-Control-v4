@@ -712,7 +712,7 @@ ScreenManager:
                     radius: [16,16,16,16]
                     md_bg_color: app.card_color
                     size_hint_y: None
-                        height: dp(252)
+                    height: dp(252)
 
                     MDLabel:
                         text: "Detalle de efectivo"

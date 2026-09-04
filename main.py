@@ -2861,7 +2861,64 @@ class DriverControlApp(MDApp):
                 "Error inesperado",
                 "No se pudo guardar la configuración.",
             )
+dialog.dismiss()
+            self.refresh_all()
+            LOGGER.info("Expense saved: category=%s amount=%s", category, amount)
 
+        except ValidationError as exc:
+            self.show_message("Revisá los datos", str(exc))
+        except Exception:
+            LOGGER.exception("Unexpected error while saving expense.")
+            self.show_message(
+                "Error inesperado",
+                "No se pudo guardar el gasto.",
+            )
+
+    def open_fuel_dialog(self):
+        if self._active_session() is None:
+            self.show_message("Abrí una jornada", "Primero abrí la jornada para registrar combustible.")
+            return
+        fields = [
+            ("liters", "Litros cargados", True),
+            ("amount", "Importe total ($)", True),
+            ("odometer", "Odómetro actual (km)", True),
+            ("payment", "Pago: Efectivo / Mercado Pago / Otro", False),
+        ]
+        self.input_dialog("Cargar combustible", fields, self.save_fuel)
+
+    def save_fuel(self, dialog, widgets):
+        try:
+            session_id = self._require_active_session()
+            liters = self._parse_non_negative_float(widgets["liters"].text, "Litros", allow_zero=False)
+            amount = self._parse_non_negative_float(widgets["amount"].text, "Importe", allow_zero=False)
+            odometer = self._parse_non_negative_float(widgets["odometer"].text, "Odómetro", allow_zero=False)
+            payment = self._normalize_payment(widgets["payment"].text)
+            now = datetime.now().strftime(DATETIME_FORMAT)
+
+            with self.transaction():
+                self.conn.execute(
+                    """
+                    INSERT INTO fuel(created_at, amount, liters, odometer, session_id, payment)
+                    VALUES(?,?,?,?,?,?)
+                    """,
+                    (now, amount, liters, odometer, session_id, payment),
+                )
+                self.conn.execute(
+                    """
+                    INSERT INTO expenses(created_at, category, description, amount, payment, session_id)
+                    VALUES(?,?,?,?,?,?)
+                    """,
+                    (now, "Combustible", f"Carga de {liters:.2f} L", amount, payment, session_id),
+                )
+                
+            dialog.dismiss()
+            self.refresh_all()
+            LOGGER.info("Fuel saved: liters=%s amount=%s", liters, amount)
+        except ValidationError as exc:
+            self.show_message("Revisá los datos", str(exc))
+        except Exception:
+            LOGGER.exception("Unexpected error while saving fuel.")
+            self.show_message("Error", "No se pudo registrar la carga de combustible.")
     def export_database_to_csv(self):
         try:
             export_path = Path(self.user_data_dir) / "driver_control_export.csv"

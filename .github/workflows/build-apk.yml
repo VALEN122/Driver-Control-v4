@@ -50,6 +50,22 @@ jobs:
             sed -i '/<\/application>/e cat android_manifest/application_services.xml' "$MANIFEST_PATH"
           fi
 
+                    # Copiar explícitamente los servicios Android al proyecto generado.
+          JAVA_DST="$DIST_DIR/src/main/java/org/drivercontrol/drivercontrol"
+          mkdir -p "$JAVA_DST"
+
+          cp -v android_src/org/drivercontrol/drivercontrol/DriverOverlayService.java "$JAVA_DST/"
+          cp -v android_src/org/drivercontrol/drivercontrol/UberOfferAccessibilityService.java "$JAVA_DST/"
+          cp -v android_src/org/drivercontrol/drivercontrol/OcrCaptureService.java "$JAVA_DST/"
+
+          # Verificar que realmente quedaron dentro del proyecto Android.
+          test -f "$JAVA_DST/DriverOverlayService.java"
+          test -f "$JAVA_DST/UberOfferAccessibilityService.java"
+          test -f "$JAVA_DST/OcrCaptureService.java"
+
+          echo "=== Servicios Android copiados correctamente ==="
+          ls -la "$JAVA_DST"
+
           # Confirmar que el segundo build realmente usa Java 17.
           java -version
           (cd "$DIST_DIR" && ./gradlew --version && ./gradlew clean assembleDebug)

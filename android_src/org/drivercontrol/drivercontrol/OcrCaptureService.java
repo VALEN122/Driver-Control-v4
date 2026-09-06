@@ -117,10 +117,19 @@ public class OcrCaptureService extends Service {
                 .addOnSuccessListener(result -> {
                     String text = result.getText();
                     if (text != null && !text.trim().isEmpty()) {
-                        sendBroadcast(new Intent(DriverOverlayService.ACTION_SOURCE_TEXT)
-                                .setPackage(getPackageName())
-                                .putExtra(DriverOverlayService.EXTRA_SOURCE_TEXT, text)
-                                .putExtra(DriverOverlayService.EXTRA_SOURCE_KIND, "ocr"));
+                       try {
+    Intent overlayIntent = new Intent(this, DriverOverlayService.class)
+            .setAction(DriverOverlayService.ACTION_SOURCE_TEXT)
+            .putExtra(DriverOverlayService.EXTRA_SOURCE_TEXT, text)
+            .putExtra(DriverOverlayService.EXTRA_SOURCE_KIND, "ocr");
+
+    if (Build.VERSION.SDK_INT >= 26) {
+        startForegroundService(overlayIntent);
+    } else {
+        startService(overlayIntent);
+    }
+} catch (Exception ignored) {
+}
                     }
                 })
                 .addOnCompleteListener(task -> { card.recycle(); processing = false; });

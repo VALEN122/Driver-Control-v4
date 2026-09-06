@@ -89,19 +89,29 @@ public class UberOfferAccessibilityService extends AccessibilityService {
         if (seen.add(s)) out.add(s);
     }
 
-    private void broadcastText(List<String> lines) {
-        StringBuilder raw = new StringBuilder();
-        for (String line : lines) {
-            if (raw.length() > 0) raw.append('\n');
-            raw.append(line);
-            if (raw.length() > 5000) break;
-        }
-        Intent intent = new Intent(DriverOverlayService.ACTION_SOURCE_TEXT)
-                .setPackage(getPackageName())
+  private void broadcastText(List<String> lines) {
+    StringBuilder raw = new StringBuilder();
+
+    for (String line : lines) {
+        if (raw.length() > 0) raw.append('\n');
+        raw.append(line);
+        if (raw.length() > 5000) break;
+    }
+
+    try {
+        Intent intent = new Intent(this, DriverOverlayService.class)
+                .setAction(DriverOverlayService.ACTION_SOURCE_TEXT)
                 .putExtra(DriverOverlayService.EXTRA_SOURCE_TEXT, raw.toString())
                 .putExtra(DriverOverlayService.EXTRA_SOURCE_KIND, "accessibility");
-        sendBroadcast(intent);
+
+        if (Build.VERSION.SDK_INT >= 26) {
+            startForegroundService(intent);
+        } else {
+            startService(intent);
+        }
+    } catch (Exception ignored) {
     }
+}
 
     private void startOverlayIfAllowed() {
         if (!Settings.canDrawOverlays(this)) return;

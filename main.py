@@ -31,7 +31,7 @@ from kivymd.uix.textfield import MDTextField
 # ============================================================
 
 APP_NAME = "Driver Control"
-APP_VERSION = "5.2.0"
+APP_VERSION = "5.3.0"
 DB_FILE = "driver_control.db"
 DATE_FORMAT = "%d/%m/%Y"
 DATETIME_FORMAT = "%d/%m/%Y %H:%M"
@@ -889,7 +889,7 @@ ScreenManager:
                         on_release: app.request_uber_overlay_access()
 
                     MDRaisedButton:
-                        text: "LECTURA RÁPIDA (ACCESIBILIDAD)"
+                        text: "LECTURA VISUAL AUTOMÁTICA"
                         size_hint_y: None
                         height: dp(50)
                         on_release: app.request_uber_accessibility()

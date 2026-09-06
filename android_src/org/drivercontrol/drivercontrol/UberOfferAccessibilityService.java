@@ -3,12 +3,20 @@ package org.drivercontrol.drivercontrol;
 import android.accessibilityservice.AccessibilityService;
 import android.accessibilityservice.AccessibilityServiceInfo;
 import android.content.Intent;
+import android.graphics.Bitmap;
+import android.graphics.ColorSpace;
+import android.hardware.HardwareBuffer;
 import android.os.Build;
 import android.os.SystemClock;
 import android.provider.Settings;
+import android.view.Display;
 import android.view.accessibility.AccessibilityEvent;
 import android.view.accessibility.AccessibilityNodeInfo;
-import android.view.accessibility.AccessibilityWindowInfo;
+
+import com.google.mlkit.vision.common.InputImage;
+import com.google.mlkit.vision.text.TextRecognition;
+import com.google.mlkit.vision.text.TextRecognizer;
+import com.google.mlkit.vision.text.latin.TextRecognizerOptions;
 
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -16,26 +24,41 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * Fuente rápida de texto de Uber Driver.
+ * Lector visual de ofertas de Uber.
  *
- * <p>Solo lee texto visible/accesible. No pulsa controles, no acepta ni rechaza viajes.
- * Está acotado por cantidad de nodos y frecuencia para evitar tirones.</p>
+ * En Android 11+ evita recorrer árboles grandes de Accesibilidad: toma una captura
+ * mediante AccessibilityService.takeScreenshot(), ejecuta OCR local con ML Kit y
+ * envía solamente el texto reconocido al parser de Driver Control.
+ *
+ * No pulsa botones, no acepta ni rechaza viajes, no guarda capturas y no transmite
+ * imágenes fuera del teléfono.
  */
 public class UberOfferAccessibilityService extends AccessibilityService {
     private static final String[] UBER_PACKAGES = {"com.ubercab.driver", "com.ubercab"};
-    private static final long MIN_REFRESH_MS = 500L;
-    private static final long STATUS_THROTTLE_MS = 2500L;
-    private static final int MAX_NODES = 360;
-    private static final int MAX_DEPTH = 18;
-    private static final int MAX_LINES = 140;
 
-    private long lastRefresh = 0L;
+    // Ritmo conservador: suficiente para una tarjeta que permanece varios segundos,
+    // sin castigar CPU/batería ni topar el rate-limit de takeScreenshot().
+    private static final long SCREENSHOT_INTERVAL_MS = 1200L;
+    private static final long STATUS_THROTTLE_MS = 2500L;
+    private static final int MAX_OCR_WIDTH = 1080;
+
+    // Fallback solamente para Android < 11.
+    private static final int LEGACY_MAX_NODES = 180;
+    private static final int LEGACY_MAX_DEPTH = 12;
+    private static final int LEGACY_MAX_LINES = 90;
+
+    private TextRecognizer recognizer;
+    private boolean screenshotInFlight = false;
+    private long lastScreenshotAt = 0L;
     private long lastStatusAt = 0L;
     private int lastPayloadHash = 0;
 
     @Override
     protected void onServiceConnected() {
         super.onServiceConnected();
+
+        recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS);
+
         AccessibilityServiceInfo info = getServiceInfo();
         if (info != null) {
             info.packageNames = UBER_PACKAGES;
@@ -43,135 +66,239 @@ public class UberOfferAccessibilityService extends AccessibilityService {
                     | AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED
                     | AccessibilityEvent.TYPE_VIEW_SCROLLED;
             info.feedbackType = AccessibilityServiceInfo.FEEDBACK_GENERIC;
-            info.notificationTimeout = 150;
-            info.flags |= AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS
-                    | AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS
-                    | AccessibilityServiceInfo.FLAG_INCLUDE_NOT_IMPORTANT_VIEWS;
+            info.notificationTimeout = 220;
+
+            // En Android moderno no necesitamos recuperar ventanas interactivas ni
+            // nodos "no importantes": eso era una de las fuentes de tirones.
+            info.flags |= AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS;
             setServiceInfo(info);
         }
+
         startOverlayIfAllowed();
-        sendStatus("Accesibilidad activa · abrí Uber", false);
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            sendStatus("Lector visual activo · abrí Uber", false);
+        } else {
+            sendStatus("Lector activo · modo compatibilidad", false);
+        }
     }
 
     @Override
     public void onAccessibilityEvent(AccessibilityEvent event) {
         if (event == null) return;
-        CharSequence packageName = event.getPackageName();
-        if (packageName == null || !isUberPackage(packageName.toString())) return;
 
+        CharSequence pkg = event.getPackageName();
+        if (pkg == null || !isUberPackage(pkg.toString())) return;
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            requestVisualRead();
+        } else {
+            readLegacyAccessibleText(event);
+        }
+    }
+
+    /**
+     * Android 11+: OCR sobre screenshot provisto por Accesibilidad.
+     * Esto funciona aunque Uber dibuje la tarjeta sin exponer nodos de texto.
+     */
+    private void requestVisualRead() {
         long now = SystemClock.elapsedRealtime();
-        if (now - lastRefresh < MIN_REFRESH_MS) return;
-        lastRefresh = now;
+        if (screenshotInFlight || now - lastScreenshotAt < SCREENSHOT_INTERVAL_MS) return;
 
-        List<String> visible = new ArrayList<>();
-        Set<String> seen = new HashSet<>();
-        CollectState state = new CollectState();
-
-        AccessibilityNodeInfo source = event.getSource();
-        if (source != null) {
-            try {
-                collectVisibleText(source, visible, seen, state, 0);
-            } finally {
-                recycleQuietly(source);
-            }
-        }
-
-        AccessibilityNodeInfo activeRoot = getRootInActiveWindow();
-        if (activeRoot != null) {
-            try {
-                CharSequence rootPackage = activeRoot.getPackageName();
-                if (rootPackage == null || isUberPackage(rootPackage.toString())) {
-                    collectVisibleText(activeRoot, visible, seen, state, 0);
-                }
-            } finally {
-                recycleQuietly(activeRoot);
-            }
-        }
+        screenshotInFlight = true;
+        lastScreenshotAt = now;
 
         try {
-            List<AccessibilityWindowInfo> windows = getWindows();
-            if (windows != null) {
-                for (AccessibilityWindowInfo window : windows) {
-                    if (window == null || state.nodes >= MAX_NODES || visible.size() >= MAX_LINES) continue;
-                    AccessibilityNodeInfo root = window.getRoot();
-                    if (root == null) continue;
-                    try {
-                        CharSequence rootPackage = root.getPackageName();
-                        if (rootPackage != null && isUberPackage(rootPackage.toString())) {
-                            collectVisibleText(root, visible, seen, state, 0);
+            takeScreenshot(
+                    Display.DEFAULT_DISPLAY,
+                    getMainExecutor(),
+                    new AccessibilityService.TakeScreenshotCallback() {
+                        @Override
+                        public void onSuccess(AccessibilityService.ScreenshotResult result) {
+                            processScreenshot(result);
                         }
-                    } finally {
-                        recycleQuietly(root);
-                    }
-                }
-            }
-        } catch (Throwable ignored) {
-            // Algunos fabricantes pueden restringir getWindows(); source/root siguen disponibles.
-        }
 
-        if (visible.isEmpty()) {
-            sendStatus("Uber detectado · sin texto accesible; usá OCR", true);
+                        @Override
+                        public void onFailure(int errorCode) {
+                            screenshotInFlight = false;
+                            sendStatus("Lectura visual: captura falló (" + errorCode + ")", true);
+                        }
+                    }
+            );
+        } catch (Throwable error) {
+            screenshotInFlight = false;
+            sendStatus("Lectura visual: no se pudo capturar", true);
+        }
+    }
+
+    private void processScreenshot(AccessibilityService.ScreenshotResult result) {
+        if (result == null) {
+            screenshotInFlight = false;
+            sendStatus("Lectura visual: captura vacía", true);
             return;
         }
 
-        String raw = joinLines(visible);
-        int hash = raw.hashCode();
-        if (hash == lastPayloadHash) return;
-        lastPayloadHash = hash;
-        sendText(raw);
-    }
+        HardwareBuffer buffer = null;
+        Bitmap hardwareBitmap = null;
+        Bitmap bitmap = null;
+        Bitmap ocrBitmap = null;
 
-    private boolean isUberPackage(String packageName) {
-        if (packageName == null) return false;
-        for (String allowed : UBER_PACKAGES) {
-            if (allowed.equals(packageName) || packageName.startsWith(allowed + ".")) return true;
+        try {
+            buffer = result.getHardwareBuffer();
+            if (buffer == null) {
+                screenshotInFlight = false;
+                sendStatus("Lectura visual: sin imagen", true);
+                return;
+            }
+
+            ColorSpace colorSpace = result.getColorSpace();
+            if (colorSpace == null) {
+                colorSpace = ColorSpace.get(ColorSpace.Named.SRGB);
+            }
+
+            hardwareBitmap = Bitmap.wrapHardwareBuffer(buffer, colorSpace);
+            if (hardwareBitmap == null) {
+                screenshotInFlight = false;
+                sendStatus("Lectura visual: formato no compatible", true);
+                return;
+            }
+
+            // ML Kit trabaja de forma más predecible con un bitmap software ARGB_8888.
+            bitmap = hardwareBitmap.copy(Bitmap.Config.ARGB_8888, false);
+            if (bitmap == null) {
+                screenshotInFlight = false;
+                sendStatus("Lectura visual: no se pudo preparar imagen", true);
+                return;
+            }
+
+            if (bitmap.getWidth() > MAX_OCR_WIDTH) {
+                int targetHeight = Math.max(
+                        1,
+                        Math.round(bitmap.getHeight() * (MAX_OCR_WIDTH / (float) bitmap.getWidth()))
+                );
+                ocrBitmap = Bitmap.createScaledBitmap(bitmap, MAX_OCR_WIDTH, targetHeight, true);
+            } else {
+                ocrBitmap = bitmap;
+            }
+
+        } catch (Throwable error) {
+            screenshotInFlight = false;
+            sendStatus("Lectura visual: error preparando captura", true);
+            recycle(bitmap);
+            recycle(hardwareBitmap);
+            close(buffer);
+            return;
+        } finally {
+            // Ya copiamos la imagen fuera del HardwareBuffer.
+            close(buffer);
+            recycle(hardwareBitmap);
         }
-        return false;
+
+        final Bitmap input = ocrBitmap;
+        final Bitmap original = bitmap;
+
+        if (recognizer == null || input == null) {
+            screenshotInFlight = false;
+            if (input != original) recycle(input);
+            recycle(original);
+            sendStatus("Lectura visual: OCR no disponible", true);
+            return;
+        }
+
+        recognizer.process(InputImage.fromBitmap(input, 0))
+                .addOnSuccessListener(resultText -> {
+                    String raw = resultText == null ? "" : resultText.getText();
+                    if (raw == null || raw.trim().isEmpty()) {
+                        sendStatus("OCR · pantalla leída sin texto", true);
+                        return;
+                    }
+
+                    String trimmed = raw.trim();
+                    int hash = trimmed.hashCode();
+                    if (hash == lastPayloadHash) return;
+                    lastPayloadHash = hash;
+
+                    sendText(trimmed);
+                })
+                .addOnFailureListener(error ->
+                        sendStatus("OCR · no pudo reconocer este cuadro", true))
+                .addOnCompleteListener(task -> {
+                    if (input != original) recycle(input);
+                    recycle(original);
+                    screenshotInFlight = false;
+                });
     }
 
-    private void collectVisibleText(
+    /**
+     * Fallback para Android 10 o anterior. Mantiene límites estrictos para no trabar
+     * el teléfono. En el dispositivo objetivo (Android 14) no se usa este camino.
+     */
+    private void readLegacyAccessibleText(AccessibilityEvent event) {
+        AccessibilityNodeInfo source = event.getSource();
+        if (source == null) {
+            sendStatus("Uber detectado · sin texto accesible", true);
+            return;
+        }
+
+        List<String> lines = new ArrayList<>();
+        Set<String> seen = new HashSet<>();
+        Counter counter = new Counter();
+
+        try {
+            collectLegacy(source, lines, seen, counter, 0);
+        } finally {
+            recycleNode(source);
+        }
+
+        if (lines.isEmpty()) {
+            sendStatus("Uber detectado · sin texto accesible", true);
+            return;
+        }
+
+        StringBuilder out = new StringBuilder();
+        for (String line : lines) {
+            if (out.length() > 0) out.append('\n');
+            out.append(line);
+        }
+        sendText(out.toString());
+    }
+
+    private void collectLegacy(
             AccessibilityNodeInfo node,
             List<String> out,
             Set<String> seen,
-            CollectState state,
+            Counter counter,
             int depth
     ) {
-        if (node == null || depth > MAX_DEPTH || state.nodes >= MAX_NODES || out.size() >= MAX_LINES) return;
-        state.nodes++;
+        if (node == null
+                || depth > LEGACY_MAX_DEPTH
+                || counter.nodes >= LEGACY_MAX_NODES
+                || out.size() >= LEGACY_MAX_LINES) {
+            return;
+        }
 
-        addText(node.getText(), out, seen);
-        addText(node.getContentDescription(), out, seen);
-        if (Build.VERSION.SDK_INT >= 26) addText(node.getHintText(), out, seen);
+        counter.nodes++;
+        addLegacy(node.getText(), out, seen);
+        addLegacy(node.getContentDescription(), out, seen);
 
-        int childCount = Math.min(node.getChildCount(), 48);
-        for (int i = 0; i < childCount && state.nodes < MAX_NODES && out.size() < MAX_LINES; i++) {
+        int childCount = Math.min(node.getChildCount(), 32);
+        for (int i = 0; i < childCount; i++) {
             AccessibilityNodeInfo child = null;
             try {
                 child = node.getChild(i);
-                if (child != null) collectVisibleText(child, out, seen, state, depth + 1);
+                if (child != null) collectLegacy(child, out, seen, counter, depth + 1);
             } catch (Throwable ignored) {
-                // Un nodo inválido no debe cortar toda la lectura.
             } finally {
-                recycleQuietly(child);
+                recycleNode(child);
             }
         }
     }
 
-    private void addText(CharSequence value, List<String> out, Set<String> seen) {
-        if (value == null || out.size() >= MAX_LINES) return;
+    private void addLegacy(CharSequence value, List<String> out, Set<String> seen) {
+        if (value == null || out.size() >= LEGACY_MAX_LINES) return;
         String text = value.toString().trim().replaceAll("\\s+", " ");
         if (text.isEmpty() || text.length() > 240) return;
         if (seen.add(text)) out.add(text);
-    }
-
-    private String joinLines(List<String> lines) {
-        StringBuilder raw = new StringBuilder();
-        for (String line : lines) {
-            if (raw.length() > 0) raw.append('\n');
-            raw.append(line);
-            if (raw.length() >= 7000) break;
-        }
-        return raw.toString();
     }
 
     private void sendText(String raw) {
@@ -179,10 +306,10 @@ public class UberOfferAccessibilityService extends AccessibilityService {
             Intent intent = new Intent(this, DriverOverlayService.class)
                     .setAction(DriverOverlayService.ACTION_SOURCE_TEXT)
                     .putExtra(DriverOverlayService.EXTRA_SOURCE_TEXT, raw)
-                    .putExtra(DriverOverlayService.EXTRA_SOURCE_KIND, "Accesibilidad");
+                    .putExtra(DriverOverlayService.EXTRA_SOURCE_KIND, "OCR Uber");
             startOverlayService(intent);
         } catch (Throwable error) {
-            sendStatus("Error enviando lectura de Accesibilidad", true);
+            sendStatus("OCR · error enviando lectura", true);
         }
     }
 
@@ -190,6 +317,7 @@ public class UberOfferAccessibilityService extends AccessibilityService {
         long now = SystemClock.elapsedRealtime();
         if (throttled && now - lastStatusAt < STATUS_THROTTLE_MS) return;
         lastStatusAt = now;
+
         try {
             Intent intent = new Intent(this, DriverOverlayService.class)
                     .setAction(DriverOverlayService.ACTION_READER_STATUS)
@@ -210,11 +338,38 @@ public class UberOfferAccessibilityService extends AccessibilityService {
     }
 
     private void startOverlayService(Intent intent) {
-        if (Build.VERSION.SDK_INT >= 26) startForegroundService(intent);
-        else startService(intent);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            startForegroundService(intent);
+        } else {
+            startService(intent);
+        }
     }
 
-    private static void recycleQuietly(AccessibilityNodeInfo node) {
+    private boolean isUberPackage(String packageName) {
+        if (packageName == null) return false;
+        for (String allowed : UBER_PACKAGES) {
+            if (allowed.equals(packageName) || packageName.startsWith(allowed + ".")) return true;
+        }
+        return false;
+    }
+
+    private static void recycle(Bitmap bitmap) {
+        if (bitmap == null) return;
+        try {
+            if (!bitmap.isRecycled()) bitmap.recycle();
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private static void close(HardwareBuffer buffer) {
+        if (buffer == null) return;
+        try {
+            buffer.close();
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private static void recycleNode(AccessibilityNodeInfo node) {
         if (node == null) return;
         try {
             node.recycle();
@@ -224,10 +379,22 @@ public class UberOfferAccessibilityService extends AccessibilityService {
 
     @Override
     public void onInterrupt() {
-        sendStatus("Accesibilidad interrumpida", false);
+        sendStatus("Lector visual interrumpido", false);
     }
 
-    private static final class CollectState {
+    @Override
+    public void onDestroy() {
+        if (recognizer != null) {
+            try {
+                recognizer.close();
+            } catch (Throwable ignored) {
+            }
+            recognizer = null;
+        }
+        super.onDestroy();
+    }
+
+    private static final class Counter {
         int nodes = 0;
     }
 }

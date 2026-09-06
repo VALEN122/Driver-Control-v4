@@ -1,0 +1,156 @@
+name: Aplicar fix Driver Control v5.3 lector visual y compilar APK
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  fix-build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Aplicar lector visual v5.3
+        shell: bash
+        env:
+          B64_ACCESSIBILITY: cGFja2FnZSBvcmcuZHJpdmVyY29udHJvbC5kcml2ZXJjb250cm9sOwoKaW1wb3J0IGFuZHJvaWQuYWNjZXNzaWJpbGl0eXNlcnZpY2UuQWNjZXNzaWJpbGl0eVNlcnZpY2U7CmltcG9ydCBhbmRyb2lkLmFjY2Vzc2liaWxpdHlzZXJ2aWNlLkFjY2Vzc2liaWxpdHlTZXJ2aWNlSW5mbzsKaW1wb3J0IGFuZHJvaWQuY29udGVudC5JbnRlbnQ7CmltcG9ydCBhbmRyb2lkLmdyYXBoaWNzLkJpdG1hcDsKaW1wb3J0IGFuZHJvaWQuZ3JhcGhpY3MuQ29sb3JTcGFjZTsKaW1wb3J0IGFuZHJvaWQuaGFyZHdhcmUuSGFyZHdhcmVCdWZmZXI7CmltcG9ydCBhbmRyb2lkLm9zLkJ1aWxkOwppbXBvcnQgYW5kcm9pZC5vcy5TeXN0ZW1DbG9jazsKaW1wb3J0IGFuZHJvaWQucHJvdmlkZXIuU2V0dGluZ3M7CmltcG9ydCBhbmRyb2lkLnZpZXcuRGlzcGxheTsKaW1wb3J0IGFuZHJvaWQudmlldy5hY2Nlc3NpYmlsaXR5LkFjY2Vzc2liaWxpdHlFdmVudDsKaW1wb3J0IGFuZHJvaWQudmlldy5hY2Nlc3NpYmlsaXR5LkFjY2Vzc2liaWxpdHlOb2RlSW5mbzsKCmltcG9ydCBjb20uZ29vZ2xlLm1sa2l0LnZpc2lvbi5jb21tb24uSW5wdXRJbWFnZTsKaW1wb3J0IGNvbS5nb29nbGUubWxraXQudmlzaW9uLnRleHQuVGV4dFJlY29nbml0aW9uOwppbXBvcnQgY29tLmdvb2dsZS5tbGtpdC52aXNpb24udGV4dC5UZXh0UmVjb2duaXplcjsKaW1wb3J0IGNvbS5nb29nbGUubWxraXQudmlzaW9uLnRleHQubGF0aW4uVGV4dFJlY29nbml6ZXJPcHRpb25zOwoKaW1wb3J0IGphdmEudXRpbC5BcnJheUxpc3Q7CmltcG9ydCBqYXZhLnV0aWwuSGFzaFNldDsKaW1wb3J0IGphdmEudXRpbC5MaXN0OwppbXBvcnQgamF2YS51dGlsLlNldDsKCi8qKgogKiBMZWN0b3IgdmlzdWFsIGRlIG9mZXJ0YXMgZGUgVWJlci4KICoKICogRW4gQW5kcm9pZCAxMSsgZXZpdGEgcmVjb3JyZXIgw6FyYm9sZXMgZ3JhbmRlcyBkZSBBY2Nlc2liaWxpZGFkOiB0b21hIHVuYSBjYXB0dXJhCiAqIG1lZGlhbnRlIEFjY2Vzc2liaWxpdHlTZXJ2aWNlLnRha2VTY3JlZW5zaG90KCksIGVqZWN1dGEgT0NSIGxvY2FsIGNvbiBNTCBLaXQgeQogKiBlbnbDrWEgc29sYW1lbnRlIGVsIHRleHRvIHJlY29ub2NpZG8gYWwgcGFyc2VyIGRlIERyaXZlciBDb250cm9sLgogKgogKiBObyBwdWxzYSBib3RvbmVzLCBubyBhY2VwdGEgbmkgcmVjaGF6YSB2aWFqZXMsIG5vIGd1YXJkYSBjYXB0dXJhcyB5IG5vIHRyYW5zbWl0ZQogKiBpbcOhZ2VuZXMgZnVlcmEgZGVsIHRlbMOpZm9uby4KICovCnB1YmxpYyBjbGFzcyBVYmVyT2ZmZXJBY2Nlc3NpYmlsaXR5U2VydmljZSBleHRlbmRzIEFjY2Vzc2liaWxpdHlTZXJ2aWNlIHsKICAgIHByaXZhdGUgc3RhdGljIGZpbmFsIFN0cmluZ1tdIFVCRVJfUEFDS0FHRVMgPSB7ImNvbS51YmVyY2FiLmRyaXZlciIsICJjb20udWJlcmNhYiJ9OwoKICAgIC8vIFJpdG1vIGNvbnNlcnZhZG9yOiBzdWZpY2llbnRlIHBhcmEgdW5hIHRhcmpldGEgcXVlIHBlcm1hbmVjZSB2YXJpb3Mgc2VndW5kb3MsCiAgICAvLyBzaW4gY2FzdGlnYXIgQ1BVL2JhdGVyw61hIG5pIHRvcGFyIGVsIHJhdGUtbGltaXQgZGUgdGFrZVNjcmVlbnNob3QoKS4KICAgIHByaXZhdGUgc3RhdGljIGZpbmFsIGxvbmcgU0NSRUVOU0hPVF9JTlRFUlZBTF9NUyA9IDEyMDBMOwogICAgcHJpdmF0ZSBzdGF0aWMgZmluYWwgbG9uZyBTVEFUVVNfVEhST1RUTEVfTVMgPSAyNTAwTDsKICAgIHByaXZhdGUgc3RhdGljIGZpbmFsIGludCBNQVhfT0NSX1dJRFRIID0gMTA4MDsKCiAgICAvLyBGYWxsYmFjayBzb2xhbWVudGUgcGFyYSBBbmRyb2lkIDwgMTEuCiAgICBwcml2YXRlIHN0YXRpYyBmaW5hbCBpbnQgTEVHQUNZX01BWF9OT0RFUyA9IDE4MDsKICAgIHByaXZhdGUgc3RhdGljIGZpbmFsIGludCBMRUdBQ1lfTUFYX0RFUFRIID0gMTI7CiAgICBwcml2YXRlIHN0YXRpYyBmaW5hbCBpbnQgTEVHQUNZX01BWF9MSU5FUyA9IDkwOwoKICAgIHByaXZhdGUgVGV4dFJlY29nbml6ZXIgcmVjb2duaXplcjsKICAgIHByaXZhdGUgYm9vbGVhbiBzY3JlZW5zaG90SW5GbGlnaHQgPSBmYWxzZTsKICAgIHByaXZhdGUgbG9uZyBsYXN0U2NyZWVuc2hvdEF0ID0gMEw7CiAgICBwcml2YXRlIGxvbmcgbGFzdFN0YXR1c0F0ID0gMEw7CiAgICBwcml2YXRlIGludCBsYXN0UGF5bG9hZEhhc2ggPSAwOwoKICAgIEBPdmVycmlkZQogICAgcHJvdGVjdGVkIHZvaWQgb25TZXJ2aWNlQ29ubmVjdGVkKCkgewogICAgICAgIHN1cGVyLm9uU2VydmljZUNvbm5lY3RlZCgpOwoKICAgICAgICByZWNvZ25pemVyID0gVGV4dFJlY29nbml0aW9uLmdldENsaWVudChUZXh0UmVjb2duaXplck9wdGlvbnMuREVGQVVMVF9PUFRJT05TKTsKCiAgICAgICAgQWNjZXNzaWJpbGl0eVNlcnZpY2VJbmZvIGluZm8gPSBnZXRTZXJ2aWNlSW5mbygpOwogICAgICAgIGlmIChpbmZvICE9IG51bGwpIHsKICAgICAgICAgICAgaW5mby5wYWNrYWdlTmFtZXMgPSBVQkVSX1BBQ0tBR0VTOwogICAgICAgICAgICBpbmZvLmV2ZW50VHlwZXMgPSBBY2Nlc3NpYmlsaXR5RXZlbnQuVFlQRV9XSU5ET1dfU1RBVEVfQ0hBTkdFRAogICAgICAgICAgICAgICAgICAgIHwgQWNjZXNzaWJpbGl0eUV2ZW50LlRZUEVfV0lORE9XX0NPTlRFTlRfQ0hBTkdFRAogICAgICAgICAgICAgICAgICAgIHwgQWNjZXNzaWJpbGl0eUV2ZW50LlRZUEVfVklFV19TQ1JPTExFRDsKICAgICAgICAgICAgaW5mby5mZWVkYmFja1R5cGUgPSBBY2Nlc3NpYmlsaXR5U2VydmljZUluZm8uRkVFREJBQ0tfR0VORVJJQzsKICAgICAgICAgICAgaW5mby5ub3RpZmljYXRpb25UaW1lb3V0ID0gMjIwOwoKICAgICAgICAgICAgLy8gRW4gQW5kcm9pZCBtb2Rlcm5vIG5vIG5lY2VzaXRhbW9zIHJlY3VwZXJhciB2ZW50YW5hcyBpbnRlcmFjdGl2YXMgbmkKICAgICAgICAgICAgLy8gbm9kb3MgIm5vIGltcG9ydGFudGVzIjogZXNvIGVyYSB1bmEgZGUgbGFzIGZ1ZW50ZXMgZGUgdGlyb25lcy4KICAgICAgICAgICAgaW5mby5mbGFncyB8PSBBY2Nlc3NpYmlsaXR5U2VydmljZUluZm8uRkxBR19SRVBPUlRfVklFV19JRFM7CiAgICAgICAgICAgIHNldFNlcnZpY2VJbmZvKGluZm8pOwogICAgICAgIH0KCiAgICAgICAgc3RhcnRPdmVybGF5SWZBbGxvd2VkKCk7CgogICAgICAgIGlmIChCdWlsZC5WRVJTSU9OLlNES19JTlQgPj0gQnVpbGQuVkVSU0lPTl9DT0RFUy5SKSB7CiAgICAgICAgICAgIHNlbmRTdGF0dXMoIkxlY3RvciB2aXN1YWwgYWN0aXZvIMK3IGFicsOtIFViZXIiLCBmYWxzZSk7CiAgICAgICAgfSBlbHNlIHsKICAgICAgICAgICAgc2VuZFN0YXR1cygiTGVjdG9yIGFjdGl2byDCtyBtb2RvIGNvbXBhdGliaWxpZGFkIiwgZmFsc2UpOwogICAgICAgIH0KICAgIH0KCiAgICBAT3ZlcnJpZGUKICAgIHB1YmxpYyB2b2lkIG9uQWNjZXNzaWJpbGl0eUV2ZW50KEFjY2Vzc2liaWxpdHlFdmVudCBldmVudCkgewogICAgICAgIGlmIChldmVudCA9PSBudWxsKSByZXR1cm47CgogICAgICAgIENoYXJTZXF1ZW5jZSBwa2cgPSBldmVudC5nZXRQYWNrYWdlTmFtZSgpOwogICAgICAgIGlmIChwa2cgPT0gbnVsbCB8fCAhaXNVYmVyUGFja2FnZShwa2cudG9TdHJpbmcoKSkpIHJldHVybjsKCiAgICAgICAgaWYgKEJ1aWxkLlZFUlNJT04uU0RLX0lOVCA+PSBCdWlsZC5WRVJTSU9OX0NPREVTLlIpIHsKICAgICAgICAgICAgcmVxdWVzdFZpc3VhbFJlYWQoKTsKICAgICAgICB9IGVsc2UgewogICAgICAgICAgICByZWFkTGVnYWN5QWNjZXNzaWJsZVRleHQoZXZlbnQpOwogICAgICAgIH0KICAgIH0KCiAgICAvKioKICAgICAqIEFuZHJvaWQgMTErOiBPQ1Igc29icmUgc2NyZWVuc2hvdCBwcm92aXN0byBwb3IgQWNjZXNpYmlsaWRhZC4KICAgICAqIEVzdG8gZnVuY2lvbmEgYXVucXVlIFViZXIgZGlidWplIGxhIHRhcmpldGEgc2luIGV4cG9uZXIgbm9kb3MgZGUgdGV4dG8uCiAgICAgKi8KICAgIHByaXZhdGUgdm9pZCByZXF1ZXN0VmlzdWFsUmVhZCgpIHsKICAgICAgICBsb25nIG5vdyA9IFN5c3RlbUNsb2NrLmVsYXBzZWRSZWFsdGltZSgpOwogICAgICAgIGlmIChzY3JlZW5zaG90SW5GbGlnaHQgfHwgbm93IC0gbGFzdFNjcmVlbnNob3RBdCA8IFNDUkVFTlNIT1RfSU5URVJWQUxfTVMpIHJldHVybjsKCiAgICAgICAgc2NyZWVuc2hvdEluRmxpZ2h0ID0gdHJ1ZTsKICAgICAgICBsYXN0U2NyZWVuc2hvdEF0ID0gbm93OwoKICAgICAgICB0cnkgewogICAgICAgICAgICB0YWtlU2NyZWVuc2hvdCgKICAgICAgICAgICAgICAgICAgICBEaXNwbGF5LkRFRkFVTFRfRElTUExBWSwKICAgICAgICAgICAgICAgICAgICBnZXRNYWluRXhlY3V0b3IoKSwKICAgICAgICAgICAgICAgICAgICBuZXcgQWNjZXNzaWJpbGl0eVNlcnZpY2UuVGFrZVNjcmVlbnNob3RDYWxsYmFjaygpIHsKICAgICAgICAgICAgICAgICAgICAgICAgQE92ZXJyaWRlCiAgICAgICAgICAgICAgICAgICAgICAgIHB1YmxpYyB2b2lkIG9uU3VjY2VzcyhBY2Nlc3NpYmlsaXR5U2VydmljZS5TY3JlZW5zaG90UmVzdWx0IHJlc3VsdCkgewogICAgICAgICAgICAgICAgICAgICAgICAgICAgcHJvY2Vzc1NjcmVlbnNob3QocmVzdWx0KTsKICAgICAgICAgICAgICAgICAgICAgICAgfQoKICAgICAgICAgICAgICAgICAgICAgICAgQE92ZXJyaWRlCiAgICAgICAgICAgICAgICAgICAgICAgIHB1YmxpYyB2b2lkIG9uRmFpbHVyZShpbnQgZXJyb3JDb2RlKSB7CiAgICAgICAgICAgICAgICAgICAgICAgICAgICBzY3JlZW5zaG90SW5GbGlnaHQgPSBmYWxzZTsKICAgICAgICAgICAgICAgICAgICAgICAgICAgIHNlbmRTdGF0dXMoIkxlY3R1cmEgdmlzdWFsOiBjYXB0dXJhIGZhbGzDsyAoIiArIGVycm9yQ29kZSArICIpIiwgdHJ1ZSk7CiAgICAgICAgICAgICAgICAgICAgICAgIH0KICAgICAgICAgICAgICAgICAgICB9CiAgICAgICAgICAgICk7CiAgICAgICAgfSBjYXRjaCAoVGhyb3dhYmxlIGVycm9yKSB7CiAgICAgICAgICAgIHNjcmVlbnNob3RJbkZsaWdodCA9IGZhbHNlOwogICAgICAgICAgICBzZW5kU3RhdHVzKCJMZWN0dXJhIHZpc3VhbDogbm8gc2UgcHVkbyBjYXB0dXJhciIsIHRydWUpOwogICAgICAgIH0KICAgIH0KCiAgICBwcml2YXRlIHZvaWQgcHJvY2Vzc1NjcmVlbnNob3QoQWNjZXNzaWJpbGl0eVNlcnZpY2UuU2NyZWVuc2hvdFJlc3VsdCByZXN1bHQpIHsKICAgICAgICBpZiAocmVzdWx0ID09IG51bGwpIHsKICAgICAgICAgICAgc2NyZWVuc2hvdEluRmxpZ2h0ID0gZmFsc2U7CiAgICAgICAgICAgIHNlbmRTdGF0dXMoIkxlY3R1cmEgdmlzdWFsOiBjYXB0dXJhIHZhY8OtYSIsIHRydWUpOwogICAgICAgICAgICByZXR1cm47CiAgICAgICAgfQoKICAgICAgICBIYXJkd2FyZUJ1ZmZlciBidWZmZXIgPSBudWxsOwogICAgICAgIEJpdG1hcCBoYXJkd2FyZUJpdG1hcCA9IG51bGw7CiAgICAgICAgQml0bWFwIGJpdG1hcCA9IG51bGw7CiAgICAgICAgQml0bWFwIG9jckJpdG1hcCA9IG51bGw7CgogICAgICAgIHRyeSB7CiAgICAgICAgICAgIGJ1ZmZlciA9IHJlc3VsdC5nZXRIYXJkd2FyZUJ1ZmZlcigpOwogICAgICAgICAgICBpZiAoYnVmZmVyID09IG51bGwpIHsKICAgICAgICAgICAgICAgIHNjcmVlbnNob3RJbkZsaWdodCA9IGZhbHNlOwogICAgICAgICAgICAgICAgc2VuZFN0YXR1cygiTGVjdHVyYSB2aXN1YWw6IHNpbiBpbWFnZW4iLCB0cnVlKTsKICAgICAgICAgICAgICAgIHJldHVybjsKICAgICAgICAgICAgfQoKICAgICAgICAgICAgQ29sb3JTcGFjZSBjb2xvclNwYWNlID0gcmVzdWx0LmdldENvbG9yU3BhY2UoKTsKICAgICAgICAgICAgaWYgKGNvbG9yU3BhY2UgPT0gbnVsbCkgewogICAgICAgICAgICAgICAgY29sb3JTcGFjZSA9IENvbG9yU3BhY2UuZ2V0KENvbG9yU3BhY2UuTmFtZWQuU1JHQik7CiAgICAgICAgICAgIH0KCiAgICAgICAgICAgIGhhcmR3YXJlQml0bWFwID0gQml0bWFwLndyYXBIYXJkd2FyZUJ1ZmZlcihidWZmZXIsIGNvbG9yU3BhY2UpOwogICAgICAgICAgICBpZiAoaGFyZHdhcmVCaXRtYXAgPT0gbnVsbCkgewogICAgICAgICAgICAgICAgc2NyZWVuc2hvdEluRmxpZ2h0ID0gZmFsc2U7CiAgICAgICAgICAgICAgICBzZW5kU3RhdHVzKCJMZWN0dXJhIHZpc3VhbDogZm9ybWF0byBubyBjb21wYXRpYmxlIiwgdHJ1ZSk7CiAgICAgICAgICAgICAgICByZXR1cm47CiAgICAgICAgICAgIH0KCiAgICAgICAgICAgIC8vIE1MIEtpdCB0cmFiYWphIGRlIGZvcm1hIG3DoXMgcHJlZGVjaWJsZSBjb24gdW4gYml0bWFwIHNvZnR3YXJlIEFSR0JfODg4OC4KICAgICAgICAgICAgYml0bWFwID0gaGFyZHdhcmVCaXRtYXAuY29weShCaXRtYXAuQ29uZmlnLkFSR0JfODg4OCwgZmFsc2UpOwogICAgICAgICAgICBpZiAoYml0bWFwID09IG51bGwpIHsKICAgICAgICAgICAgICAgIHNjcmVlbnNob3RJbkZsaWdodCA9IGZhbHNlOwogICAgICAgICAgICAgICAgc2VuZFN0YXR1cygiTGVjdHVyYSB2aXN1YWw6IG5vIHNlIHB1ZG8gcHJlcGFyYXIgaW1hZ2VuIiwgdHJ1ZSk7CiAgICAgICAgICAgICAgICByZXR1cm47CiAgICAgICAgICAgIH0KCiAgICAgICAgICAgIGlmIChiaXRtYXAuZ2V0V2lkdGgoKSA+IE1BWF9PQ1JfV0lEVEgpIHsKICAgICAgICAgICAgICAgIGludCB0YXJnZXRIZWlnaHQgPSBNYXRoLm1heCgKICAgICAgICAgICAgICAgICAgICAgICAgMSwKICAgICAgICAgICAgICAgICAgICAgICAgTWF0aC5yb3VuZChiaXRtYXAuZ2V0SGVpZ2h0KCkgKiAoTUFYX09DUl9XSURUSCAvIChmbG9hdCkgYml0bWFwLmdldFdpZHRoKCkpKQogICAgICAgICAgICAgICAgKTsKICAgICAgICAgICAgICAgIG9jckJpdG1hcCA9IEJpdG1hcC5jcmVhdGVTY2FsZWRCaXRtYXAoYml0bWFwLCBNQVhfT0NSX1dJRFRILCB0YXJnZXRIZWlnaHQsIHRydWUpOwogICAgICAgICAgICB9IGVsc2UgewogICAgICAgICAgICAgICAgb2NyQml0bWFwID0gYml0bWFwOwogICAgICAgICAgICB9CgogICAgICAgIH0gY2F0Y2ggKFRocm93YWJsZSBlcnJvcikgewogICAgICAgICAgICBzY3JlZW5zaG90SW5GbGlnaHQgPSBmYWxzZTsKICAgICAgICAgICAgc2VuZFN0YXR1cygiTGVjdHVyYSB2aXN1YWw6IGVycm9yIHByZXBhcmFuZG8gY2FwdHVyYSIsIHRydWUpOwogICAgICAgICAgICByZWN5Y2xlKGJpdG1hcCk7CiAgICAgICAgICAgIHJlY3ljbGUoaGFyZHdhcmVCaXRtYXApOwogICAgICAgICAgICBjbG9zZShidWZmZXIpOwogICAgICAgICAgICByZXR1cm47CiAgICAgICAgfSBmaW5hbGx5IHsKICAgICAgICAgICAgLy8gWWEgY29waWFtb3MgbGEgaW1hZ2VuIGZ1ZXJhIGRlbCBIYXJkd2FyZUJ1ZmZlci4KICAgICAgICAgICAgY2xvc2UoYnVmZmVyKTsKICAgICAgICAgICAgcmVjeWNsZShoYXJkd2FyZUJpdG1hcCk7CiAgICAgICAgfQoKICAgICAgICBmaW5hbCBCaXRtYXAgaW5wdXQgPSBvY3JCaXRtYXA7CiAgICAgICAgZmluYWwgQml0bWFwIG9yaWdpbmFsID0gYml0bWFwOwoKICAgICAgICBpZiAocmVjb2duaXplciA9PSBudWxsIHx8IGlucHV0ID09IG51bGwpIHsKICAgICAgICAgICAgc2NyZWVuc2hvdEluRmxpZ2h0ID0gZmFsc2U7CiAgICAgICAgICAgIGlmIChpbnB1dCAhPSBvcmlnaW5hbCkgcmVjeWNsZShpbnB1dCk7CiAgICAgICAgICAgIHJlY3ljbGUob3JpZ2luYWwpOwogICAgICAgICAgICBzZW5kU3RhdHVzKCJMZWN0dXJhIHZpc3VhbDogT0NSIG5vIGRpc3BvbmlibGUiLCB0cnVlKTsKICAgICAgICAgICAgcmV0dXJuOwogICAgICAgIH0KCiAgICAgICAgcmVjb2duaXplci5wcm9jZXNzKElucHV0SW1hZ2UuZnJvbUJpdG1hcChpbnB1dCwgMCkpCiAgICAgICAgICAgICAgICAuYWRkT25TdWNjZXNzTGlzdGVuZXIocmVzdWx0VGV4dCAtPiB7CiAgICAgICAgICAgICAgICAgICAgU3RyaW5nIHJhdyA9IHJlc3VsdFRleHQgPT0gbnVsbCA/ICIiIDogcmVzdWx0VGV4dC5nZXRUZXh0KCk7CiAgICAgICAgICAgICAgICAgICAgaWYgKHJhdyA9PSBudWxsIHx8IHJhdy50cmltKCkuaXNFbXB0eSgpKSB7CiAgICAgICAgICAgICAgICAgICAgICAgIHNlbmRTdGF0dXMoIk9DUiDCtyBwYW50YWxsYSBsZcOtZGEgc2luIHRleHRvIiwgdHJ1ZSk7CiAgICAgICAgICAgICAgICAgICAgICAgIHJldHVybjsKICAgICAgICAgICAgICAgICAgICB9CgogICAgICAgICAgICAgICAgICAgIFN0cmluZyB0cmltbWVkID0gcmF3LnRyaW0oKTsKICAgICAgICAgICAgICAgICAgICBpbnQgaGFzaCA9IHRyaW1tZWQuaGFzaENvZGUoKTsKICAgICAgICAgICAgICAgICAgICBpZiAoaGFzaCA9PSBsYXN0UGF5bG9hZEhhc2gpIHJldHVybjsKICAgICAgICAgICAgICAgICAgICBsYXN0UGF5bG9hZEhhc2ggPSBoYXNoOwoKICAgICAgICAgICAgICAgICAgICBzZW5kVGV4dCh0cmltbWVkKTsKICAgICAgICAgICAgICAgIH0pCiAgICAgICAgICAgICAgICAuYWRkT25GYWlsdXJlTGlzdGVuZXIoZXJyb3IgLT4KICAgICAgICAgICAgICAgICAgICAgICAgc2VuZFN0YXR1cygiT0NSIMK3IG5vIHB1ZG8gcmVjb25vY2VyIGVzdGUgY3VhZHJvIiwgdHJ1ZSkpCiAgICAgICAgICAgICAgICAuYWRkT25Db21wbGV0ZUxpc3RlbmVyKHRhc2sgLT4gewogICAgICAgICAgICAgICAgICAgIGlmIChpbnB1dCAhPSBvcmlnaW5hbCkgcmVjeWNsZShpbnB1dCk7CiAgICAgICAgICAgICAgICAgICAgcmVjeWNsZShvcmlnaW5hbCk7CiAgICAgICAgICAgICAgICAgICAgc2NyZWVuc2hvdEluRmxpZ2h0ID0gZmFsc2U7CiAgICAgICAgICAgICAgICB9KTsKICAgIH0KCiAgICAvKioKICAgICAqIEZhbGxiYWNrIHBhcmEgQW5kcm9pZCAxMCBvIGFudGVyaW9yLiBNYW50aWVuZSBsw61taXRlcyBlc3RyaWN0b3MgcGFyYSBubyB0cmFiYXIKICAgICAqIGVsIHRlbMOpZm9uby4gRW4gZWwgZGlzcG9zaXRpdm8gb2JqZXRpdm8gKEFuZHJvaWQgMTQpIG5vIHNlIHVzYSBlc3RlIGNhbWluby4KICAgICAqLwogICAgcHJpdmF0ZSB2b2lkIHJlYWRMZWdhY3lBY2Nlc3NpYmxlVGV4dChBY2Nlc3NpYmlsaXR5RXZlbnQgZXZlbnQpIHsKICAgICAgICBBY2Nlc3NpYmlsaXR5Tm9kZUluZm8gc291cmNlID0gZXZlbnQuZ2V0U291cmNlKCk7CiAgICAgICAgaWYgKHNvdXJjZSA9PSBudWxsKSB7CiAgICAgICAgICAgIHNlbmRTdGF0dXMoIlViZXIgZGV0ZWN0YWRvIMK3IHNpbiB0ZXh0byBhY2Nlc2libGUiLCB0cnVlKTsKICAgICAgICAgICAgcmV0dXJuOwogICAgICAgIH0KCiAgICAgICAgTGlzdDxTdHJpbmc+IGxpbmVzID0gbmV3IEFycmF5TGlzdDw+KCk7CiAgICAgICAgU2V0PFN0cmluZz4gc2VlbiA9IG5ldyBIYXNoU2V0PD4oKTsKICAgICAgICBDb3VudGVyIGNvdW50ZXIgPSBuZXcgQ291bnRlcigpOwoKICAgICAgICB0cnkgewogICAgICAgICAgICBjb2xsZWN0TGVnYWN5KHNvdXJjZSwgbGluZXMsIHNlZW4sIGNvdW50ZXIsIDApOwogICAgICAgIH0gZmluYWxseSB7CiAgICAgICAgICAgIHJlY3ljbGVOb2RlKHNvdXJjZSk7CiAgICAgICAgfQoKICAgICAgICBpZiAobGluZXMuaXNFbXB0eSgpKSB7CiAgICAgICAgICAgIHNlbmRTdGF0dXMoIlViZXIgZGV0ZWN0YWRvIMK3IHNpbiB0ZXh0byBhY2Nlc2libGUiLCB0cnVlKTsKICAgICAgICAgICAgcmV0dXJuOwogICAgICAgIH0KCiAgICAgICAgU3RyaW5nQnVpbGRlciBvdXQgPSBuZXcgU3RyaW5nQnVpbGRlcigpOwogICAgICAgIGZvciAoU3RyaW5nIGxpbmUgOiBsaW5lcykgewogICAgICAgICAgICBpZiAob3V0Lmxlbmd0aCgpID4gMCkgb3V0LmFwcGVuZCgnXG4nKTsKICAgICAgICAgICAgb3V0LmFwcGVuZChsaW5lKTsKICAgICAgICB9CiAgICAgICAgc2VuZFRleHQob3V0LnRvU3RyaW5nKCkpOwogICAgfQoKICAgIHByaXZhdGUgdm9pZCBjb2xsZWN0TGVnYWN5KAogICAgICAgICAgICBBY2Nlc3NpYmlsaXR5Tm9kZUluZm8gbm9kZSwKICAgICAgICAgICAgTGlzdDxTdHJpbmc+IG91dCwKICAgICAgICAgICAgU2V0PFN0cmluZz4gc2VlbiwKICAgICAgICAgICAgQ291bnRlciBjb3VudGVyLAogICAgICAgICAgICBpbnQgZGVwdGgKICAgICkgewogICAgICAgIGlmIChub2RlID09IG51bGwKICAgICAgICAgICAgICAgIHx8IGRlcHRoID4gTEVHQUNZX01BWF9ERVBUSAogICAgICAgICAgICAgICAgfHwgY291bnRlci5ub2RlcyA+PSBMRUdBQ1lfTUFYX05PREVTCiAgICAgICAgICAgICAgICB8fCBvdXQuc2l6ZSgpID49IExFR0FDWV9NQVhfTElORVMpIHsKICAgICAgICAgICAgcmV0dXJuOwogICAgICAgIH0KCiAgICAgICAgY291bnRlci5ub2RlcysrOwogICAgICAgIGFkZExlZ2FjeShub2RlLmdldFRleHQoKSwgb3V0LCBzZWVuKTsKICAgICAgICBhZGRMZWdhY3kobm9kZS5nZXRDb250ZW50RGVzY3JpcHRpb24oKSwgb3V0LCBzZWVuKTsKCiAgICAgICAgaW50IGNoaWxkQ291bnQgPSBNYXRoLm1pbihub2RlLmdldENoaWxkQ291bnQoKSwgMzIpOwogICAgICAgIGZvciAoaW50IGkgPSAwOyBpIDwgY2hpbGRDb3VudDsgaSsrKSB7CiAgICAgICAgICAgIEFjY2Vzc2liaWxpdHlOb2RlSW5mbyBjaGlsZCA9IG51bGw7CiAgICAgICAgICAgIHRyeSB7CiAgICAgICAgICAgICAgICBjaGlsZCA9IG5vZGUuZ2V0Q2hpbGQoaSk7CiAgICAgICAgICAgICAgICBpZiAoY2hpbGQgIT0gbnVsbCkgY29sbGVjdExlZ2FjeShjaGlsZCwgb3V0LCBzZWVuLCBjb3VudGVyLCBkZXB0aCArIDEpOwogICAgICAgICAgICB9IGNhdGNoIChUaHJvd2FibGUgaWdub3JlZCkgewogICAgICAgICAgICB9IGZpbmFsbHkgewogICAgICAgICAgICAgICAgcmVjeWNsZU5vZGUoY2hpbGQpOwogICAgICAgICAgICB9CiAgICAgICAgfQogICAgfQoKICAgIHByaXZhdGUgdm9pZCBhZGRMZWdhY3koQ2hhclNlcXVlbmNlIHZhbHVlLCBMaXN0PFN0cmluZz4gb3V0LCBTZXQ8U3RyaW5nPiBzZWVuKSB7CiAgICAgICAgaWYgKHZhbHVlID09IG51bGwgfHwgb3V0LnNpemUoKSA+PSBMRUdBQ1lfTUFYX0xJTkVTKSByZXR1cm47CiAgICAgICAgU3RyaW5nIHRleHQgPSB2YWx1ZS50b1N0cmluZygpLnRyaW0oKS5yZXBsYWNlQWxsKCJcXHMrIiwgIiAiKTsKICAgICAgICBpZiAodGV4dC5pc0VtcHR5KCkgfHwgdGV4dC5sZW5ndGgoKSA+IDI0MCkgcmV0dXJuOwogICAgICAgIGlmIChzZWVuLmFkZCh0ZXh0KSkgb3V0LmFkZCh0ZXh0KTsKICAgIH0KCiAgICBwcml2YXRlIHZvaWQgc2VuZFRleHQoU3RyaW5nIHJhdykgewogICAgICAgIHRyeSB7CiAgICAgICAgICAgIEludGVudCBpbnRlbnQgPSBuZXcgSW50ZW50KHRoaXMsIERyaXZlck92ZXJsYXlTZXJ2aWNlLmNsYXNzKQogICAgICAgICAgICAgICAgICAgIC5zZXRBY3Rpb24oRHJpdmVyT3ZlcmxheVNlcnZpY2UuQUNUSU9OX1NPVVJDRV9URVhUKQogICAgICAgICAgICAgICAgICAgIC5wdXRFeHRyYShEcml2ZXJPdmVybGF5U2VydmljZS5FWFRSQV9TT1VSQ0VfVEVYVCwgcmF3KQogICAgICAgICAgICAgICAgICAgIC5wdXRFeHRyYShEcml2ZXJPdmVybGF5U2VydmljZS5FWFRSQV9TT1VSQ0VfS0lORCwgIk9DUiBVYmVyIik7CiAgICAgICAgICAgIHN0YXJ0T3ZlcmxheVNlcnZpY2UoaW50ZW50KTsKICAgICAgICB9IGNhdGNoIChUaHJvd2FibGUgZXJyb3IpIHsKICAgICAgICAgICAgc2VuZFN0YXR1cygiT0NSIMK3IGVycm9yIGVudmlhbmRvIGxlY3R1cmEiLCB0cnVlKTsKICAgICAgICB9CiAgICB9CgogICAgcHJpdmF0ZSB2b2lkIHNlbmRTdGF0dXMoU3RyaW5nIG1lc3NhZ2UsIGJvb2xlYW4gdGhyb3R0bGVkKSB7CiAgICAgICAgbG9uZyBub3cgPSBTeXN0ZW1DbG9jay5lbGFwc2VkUmVhbHRpbWUoKTsKICAgICAgICBpZiAodGhyb3R0bGVkICYmIG5vdyAtIGxhc3RTdGF0dXNBdCA8IFNUQVRVU19USFJPVFRMRV9NUykgcmV0dXJuOwogICAgICAgIGxhc3RTdGF0dXNBdCA9IG5vdzsKCiAgICAgICAgdHJ5IHsKICAgICAgICAgICAgSW50ZW50IGludGVudCA9IG5ldyBJbnRlbnQodGhpcywgRHJpdmVyT3ZlcmxheVNlcnZpY2UuY2xhc3MpCiAgICAgICAgICAgICAgICAgICAgLnNldEFjdGlvbihEcml2ZXJPdmVybGF5U2VydmljZS5BQ1RJT05fUkVBREVSX1NUQVRVUykKICAgICAgICAgICAgICAgICAgICAucHV0RXh0cmEoRHJpdmVyT3ZlcmxheVNlcnZpY2UuRVhUUkFfUkVBREVSX1NUQVRVUywgbWVzc2FnZSk7CiAgICAgICAgICAgIHN0YXJ0T3ZlcmxheVNlcnZpY2UoaW50ZW50KTsKICAgICAgICB9IGNhdGNoIChUaHJvd2FibGUgaWdub3JlZCkgewogICAgICAgIH0KICAgIH0KCiAgICBwcml2YXRlIHZvaWQgc3RhcnRPdmVybGF5SWZBbGxvd2VkKCkgewogICAgICAgIGlmICghU2V0dGluZ3MuY2FuRHJhd092ZXJsYXlzKHRoaXMpKSByZXR1cm47CiAgICAgICAgdHJ5IHsKICAgICAgICAgICAgSW50ZW50IGludGVudCA9IG5ldyBJbnRlbnQodGhpcywgRHJpdmVyT3ZlcmxheVNlcnZpY2UuY2xhc3MpCiAgICAgICAgICAgICAgICAgICAgLnNldEFjdGlvbihEcml2ZXJPdmVybGF5U2VydmljZS5BQ1RJT05fU1RBUlQpOwogICAgICAgICAgICBzdGFydE92ZXJsYXlTZXJ2aWNlKGludGVudCk7CiAgICAgICAgfSBjYXRjaCAoVGhyb3dhYmxlIGlnbm9yZWQpIHsKICAgICAgICB9CiAgICB9CgogICAgcHJpdmF0ZSB2b2lkIHN0YXJ0T3ZlcmxheVNlcnZpY2UoSW50ZW50IGludGVudCkgewogICAgICAgIGlmIChCdWlsZC5WRVJTSU9OLlNES19JTlQgPj0gQnVpbGQuVkVSU0lPTl9DT0RFUy5PKSB7CiAgICAgICAgICAgIHN0YXJ0Rm9yZWdyb3VuZFNlcnZpY2UoaW50ZW50KTsKICAgICAgICB9IGVsc2UgewogICAgICAgICAgICBzdGFydFNlcnZpY2UoaW50ZW50KTsKICAgICAgICB9CiAgICB9CgogICAgcHJpdmF0ZSBib29sZWFuIGlzVWJlclBhY2thZ2UoU3RyaW5nIHBhY2thZ2VOYW1lKSB7CiAgICAgICAgaWYgKHBhY2thZ2VOYW1lID09IG51bGwpIHJldHVybiBmYWxzZTsKICAgICAgICBmb3IgKFN0cmluZyBhbGxvd2VkIDogVUJFUl9QQUNLQUdFUykgewogICAgICAgICAgICBpZiAoYWxsb3dlZC5lcXVhbHMocGFja2FnZU5hbWUpIHx8IHBhY2thZ2VOYW1lLnN0YXJ0c1dpdGgoYWxsb3dlZCArICIuIikpIHJldHVybiB0cnVlOwogICAgICAgIH0KICAgICAgICByZXR1cm4gZmFsc2U7CiAgICB9CgogICAgcHJpdmF0ZSBzdGF0aWMgdm9pZCByZWN5Y2xlKEJpdG1hcCBiaXRtYXApIHsKICAgICAgICBpZiAoYml0bWFwID09IG51bGwpIHJldHVybjsKICAgICAgICB0cnkgewogICAgICAgICAgICBpZiAoIWJpdG1hcC5pc1JlY3ljbGVkKCkpIGJpdG1hcC5yZWN5Y2xlKCk7CiAgICAgICAgfSBjYXRjaCAoVGhyb3dhYmxlIGlnbm9yZWQpIHsKICAgICAgICB9CiAgICB9CgogICAgcHJpdmF0ZSBzdGF0aWMgdm9pZCBjbG9zZShIYXJkd2FyZUJ1ZmZlciBidWZmZXIpIHsKICAgICAgICBpZiAoYnVmZmVyID09IG51bGwpIHJldHVybjsKICAgICAgICB0cnkgewogICAgICAgICAgICBidWZmZXIuY2xvc2UoKTsKICAgICAgICB9IGNhdGNoIChUaHJvd2FibGUgaWdub3JlZCkgewogICAgICAgIH0KICAgIH0KCiAgICBwcml2YXRlIHN0YXRpYyB2b2lkIHJlY3ljbGVOb2RlKEFjY2Vzc2liaWxpdHlOb2RlSW5mbyBub2RlKSB7CiAgICAgICAgaWYgKG5vZGUgPT0gbnVsbCkgcmV0dXJuOwogICAgICAgIHRyeSB7CiAgICAgICAgICAgIG5vZGUucmVjeWNsZSgpOwogICAgICAgIH0gY2F0Y2ggKFRocm93YWJsZSBpZ25vcmVkKSB7CiAgICAgICAgfQogICAgfQoKICAgIEBPdmVycmlkZQogICAgcHVibGljIHZvaWQgb25JbnRlcnJ1cHQoKSB7CiAgICAgICAgc2VuZFN0YXR1cygiTGVjdG9yIHZpc3VhbCBpbnRlcnJ1bXBpZG8iLCBmYWxzZSk7CiAgICB9CgogICAgQE92ZXJyaWRlCiAgICBwdWJsaWMgdm9pZCBvbkRlc3Ryb3koKSB7CiAgICAgICAgaWYgKHJlY29nbml6ZXIgIT0gbnVsbCkgewogICAgICAgICAgICB0cnkgewogICAgICAgICAgICAgICAgcmVjb2duaXplci5jbG9zZSgpOwogICAgICAgICAgICB9IGNhdGNoIChUaHJvd2FibGUgaWdub3JlZCkgewogICAgICAgICAgICB9CiAgICAgICAgICAgIHJlY29nbml6ZXIgPSBudWxsOwogICAgICAgIH0KICAgICAgICBzdXBlci5vbkRlc3Ryb3koKTsKICAgIH0KCiAgICBwcml2YXRlIHN0YXRpYyBmaW5hbCBjbGFzcyBDb3VudGVyIHsKICAgICAgICBpbnQgbm9kZXMgPSAwOwogICAgfQp9Cg==
+          B64_ACCESSIBILITY_XML: PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0idXRmLTgiPz4KPGFjY2Vzc2liaWxpdHktc2VydmljZSB4bWxuczphbmRyb2lkPSJodHRwOi8vc2NoZW1hcy5hbmRyb2lkLmNvbS9hcGsvcmVzL2FuZHJvaWQiCiAgICBhbmRyb2lkOmFjY2Vzc2liaWxpdHlFdmVudFR5cGVzPSJ0eXBlV2luZG93U3RhdGVDaGFuZ2VkfHR5cGVXaW5kb3dDb250ZW50Q2hhbmdlZHx0eXBlVmlld1Njcm9sbGVkIgogICAgYW5kcm9pZDphY2Nlc3NpYmlsaXR5RmVlZGJhY2tUeXBlPSJmZWVkYmFja0dlbmVyaWMiCiAgICBhbmRyb2lkOmFjY2Vzc2liaWxpdHlGbGFncz0iZmxhZ1JlcG9ydFZpZXdJZHMiCiAgICBhbmRyb2lkOmNhblJldHJpZXZlV2luZG93Q29udGVudD0idHJ1ZSIKICAgIGFuZHJvaWQ6Y2FuVGFrZVNjcmVlbnNob3Q9InRydWUiCiAgICBhbmRyb2lkOmRlc2NyaXB0aW9uPSJAc3RyaW5nL2FwcF9uYW1lIgogICAgYW5kcm9pZDpub3RpZmljYXRpb25UaW1lb3V0PSIyMjAiCiAgICBhbmRyb2lkOnBhY2thZ2VOYW1lcz0iY29tLnViZXJjYWIuZHJpdmVyLGNvbS51YmVyY2FiIiAvPgo=
+        run: |
+          set -euxo pipefail
+
+          python3 - <<'PYFIX'
+          import base64
+          import os
+          from pathlib import Path
+
+          def write_b64(path, env_name):
+              p = Path(path)
+              p.parent.mkdir(parents=True, exist_ok=True)
+              p.write_bytes(base64.b64decode(os.environ[env_name]))
+
+          write_b64(
+              "android_src/org/drivercontrol/drivercontrol/UberOfferAccessibilityService.java",
+              "B64_ACCESSIBILITY",
+          )
+          write_b64(
+              "android_res/xml/uber_offer_accessibility_service.xml",
+              "B64_ACCESSIBILITY_XML",
+          )
+
+          main_path = Path("main.py")
+          main = main_path.read_text(encoding="utf-8")
+          main = main.replace('APP_VERSION = "5.2.0"', 'APP_VERSION = "5.3.0"')
+          main = main.replace('APP_VERSION = "5.1.0"', 'APP_VERSION = "5.3.0"')
+          main = main.replace(
+              "LECTURA RÁPIDA (ACCESIBILIDAD)",
+              "LECTURA VISUAL AUTOMÁTICA",
+          )
+          main = main.replace(
+              "Accesibilidad se usa solo para leer tarifa, minutos y kilómetros visibles en Uber. "
+              "No pulsa botones ni acepta viajes. La lectura está limitada para cuidar el rendimiento. "
+              "Si Uber no expone texto accesible, activá OCR como respaldo. "
+              "Mantené pulsada la burbuja $ para ver el último diagnóstico del lector.",
+              "El lector visual usa Accesibilidad únicamente para detectar Uber y tomar capturas locales "
+              "de la pantalla. El OCR se procesa en el teléfono; no pulsa botones ni acepta viajes. "
+              "Esta versión evita recorrer árboles grandes de Accesibilidad para cuidar el rendimiento. "
+              "Mantené pulsada la burbuja $ para ver el último diagnóstico.",
+          )
+          main_path.write_text(main, encoding="utf-8")
+
+          spec = Path("buildozer.spec")
+          spec_text = spec.read_text(encoding="utf-8")
+          spec_text = spec_text.replace("version = 5.2.0", "version = 5.3.0")
+          spec_text = spec_text.replace("version = 5.1.0", "version = 5.3.0")
+          spec.write_text(spec_text, encoding="utf-8")
+
+          Path("CHANGELOG_5.3.0.md").write_text(
+              "# Driver Control 5.3.0 — lector visual de Uber\n\n"
+              "- Cambia la estrategia de lectura en Android 11+: ya no depende del texto accesible de la tarjeta.\n"
+              "- Usa AccessibilityService.takeScreenshot() + ML Kit OCR local.\n"
+              "- Evita recorrer ventanas y cientos de nodos en Android moderno para reducir tirones.\n"
+              "- Mantiene un fallback acotado para Android antiguo.\n"
+              "- No guarda capturas, no transmite imágenes y nunca pulsa Aceptar/Rechazar.\n"
+              "- El parser y el flotante siguen siendo los de v5.2.\n",
+              encoding="utf-8",
+          )
+          PYFIX
+
+          python3 -m py_compile main.py
+          grep -q 'APP_VERSION = "5.3.0"' main.py
+          grep -q 'takeScreenshot' android_src/org/drivercontrol/drivercontrol/UberOfferAccessibilityService.java
+          grep -q 'canTakeScreenshot="true"' android_res/xml/uber_offer_accessibility_service.xml
+          grep -q 'com.google.mlkit:.*text-recognition' buildozer.spec
+          git diff --check
+
+      - name: Compilar APK Android v5.3
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          cp buildozer.spec buildozer.spec.complete
+          trap 'mv -f buildozer.spec.complete buildozer.spec 2>/dev/null || true' EXIT
+
+          # Evita que p4a intente inyectar dos veces los servicios.
+          sed -i '/^android.extra_manifest_application_arguments[[:space:]]*=/d' buildozer.spec
+
+          docker run --rm             -v "$PWD":/home/user/hostcwd             ghcr.io/kivy/buildozer:latest android debug
+
+          sudo chown -R "$(id -u):$(id -g)" .buildozer bin || true
+
+          MANIFEST_PATH=$(find .buildozer/android/platform             -path '*/dists/drivercontrol/src/main/AndroidManifest.xml'             -print -quit)
+          test -n "$MANIFEST_PATH"
+
+          DIST_DIR=$(dirname "$(dirname "$(dirname "$MANIFEST_PATH")")")
+
+          if ! grep -q 'UberOfferAccessibilityService' "$MANIFEST_PATH"; then
+            sed -i '/<\/application>/e cat android_manifest/application_services.xml' "$MANIFEST_PATH"
+          fi
+
+          JAVA_DST="$DIST_DIR/src/main/java/org/drivercontrol/drivercontrol"
+          mkdir -p "$JAVA_DST"
+
+          cp -v android_src/org/drivercontrol/drivercontrol/DriverOverlayService.java "$JAVA_DST/"
+          cp -v android_src/org/drivercontrol/drivercontrol/UberOfferAccessibilityService.java "$JAVA_DST/"
+          cp -v android_src/org/drivercontrol/drivercontrol/OcrCaptureService.java "$JAVA_DST/"
+
+          (cd "$DIST_DIR" && ./gradlew clean assembleDebug)
+
+          APK_PATH=$(find "$DIST_DIR/build/outputs/apk/debug" -name '*.apk' -print -quit)
+          test -n "$APK_PATH"
+
+          mkdir -p release
+          cp "$APK_PATH" release/Driver-Control-v5.3.0-LECTOR-VISUAL.apk
+
+      - name: Subir APK v5.3
+        uses: actions/upload-artifact@v4
+        with:
+          name: Driver-Control-v5.3.0-LECTOR-VISUAL
+          path: release/Driver-Control-v5.3.0-LECTOR-VISUAL.apk
+          if-no-files-found: error
+
+      - name: Guardar código v5.3 en main
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add             main.py             buildozer.spec             CHANGELOG_5.3.0.md             android_src/org/drivercontrol/drivercontrol/UberOfferAccessibilityService.java             android_res/xml/uber_offer_accessibility_service.xml
+
+          if git diff --cached --quiet; then
+            echo "No hay cambios nuevos para guardar."
+          else
+            git commit -m "Driver Control v5.3: lector visual Uber [skip ci]"
+            git push origin HEAD:main
+          fi

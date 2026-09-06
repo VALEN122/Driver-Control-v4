@@ -31,7 +31,7 @@ from kivymd.uix.textfield import MDTextField
 # ============================================================
 
 APP_NAME = "Driver Control"
-APP_VERSION = "5.1.0"
+APP_VERSION = "5.2.0"
 DB_FILE = "driver_control.db"
 DATE_FORMAT = "%d/%m/%Y"
 DATETIME_FORMAT = "%d/%m/%Y %H:%M"
@@ -875,7 +875,7 @@ ScreenManager:
                         height: dp(34)
 
                     MDLabel:
-                        text: "El flotante y el vuelto funcionan sin depender de Accesibilidad. Para leer ofertas podés usar Accesibilidad (rápida) u OCR (respaldo)."
+                        text: "El flotante y el vuelto son independientes. Usá Accesibilidad para lectura rápida u OCR si Uber no expone texto. Mantené pulsada la burbuja $ para diagnóstico."
                         theme_text_color: "Custom"
                         text_color: app.muted_color
                         font_style: "Caption"
@@ -1899,20 +1899,26 @@ class DriverControlApp(MDApp):
             LOGGER.exception("Could not stop DriverOverlayService")
 
     def request_uber_accessibility(self):
-        """Accesibilidad queda como fuente opcional y optimizada de texto."""
+        """Abre la autorización de Accesibilidad con botones visibles y comportamiento estable."""
         if platform != "android":
             self.show_message("Solo Android", "La lectura por accesibilidad funciona únicamente en Android.")
             return
+
         disclosure = (
             "Accesibilidad se usa solo para leer tarifa, minutos y kilómetros visibles en Uber. "
-            "No pulsa botones ni acepta viajes. En esta versión el recorrido de pantalla está limitado "
-            "para reducir tirones. Si notás lentitud, podés apagar Accesibilidad y usar OCR como respaldo; "
-            "el flotante y el vuelto seguirán funcionando."
+            "No pulsa botones ni acepta viajes. La lectura está limitada para cuidar el rendimiento. "
+            "Si Uber no expone texto accesible, activá OCR como respaldo. "
+            "Mantené pulsada la burbuja $ para ver el último diagnóstico del lector."
         )
-        dialog = MDDialog(title="Lectura rápida", text=disclosure, buttons=[])
+        dialog = None
+
+        def cancel(_button):
+            if dialog is not None:
+                dialog.dismiss()
 
         def continue_to_settings(_button):
-            dialog.dismiss()
+            if dialog is not None:
+                dialog.dismiss()
             self._sync_android_assistant_settings()
             self._start_driver_overlay_service()
             try:
@@ -1926,10 +1932,16 @@ class DriverControlApp(MDApp):
                 LOGGER.exception("Could not open Android accessibility settings")
                 self.show_message("Permiso", "No se pudieron abrir los ajustes de accesibilidad.")
 
-        dialog.buttons = [
-            MDFlatButton(text="CANCELAR", on_release=lambda _x: dialog.dismiss()),
-            MDFlatButton(text="CONTINUAR", on_release=continue_to_settings),
-        ]
+        # Los botones se crean junto con el MDDialog. En algunos Samsung/KivyMD,
+        # asignar dialog.buttons después de construirlo deja el área de acciones vacía.
+        dialog = MDDialog(
+            title="Lectura rápida",
+            text=disclosure,
+            buttons=[
+                MDFlatButton(text="CANCELAR", on_release=cancel),
+                MDFlatButton(text="CONTINUAR", on_release=continue_to_settings),
+            ],
+        )
         dialog.open()
 
     def request_uber_ocr(self):
@@ -2041,6 +2053,17 @@ class DriverControlApp(MDApp):
             self.show_message("Error", "No se pudo analizar el viaje.")
 
     def _show_assistant_result_dialog(self, result):
+        dialog = None
+
+        def mark(decision):
+            self.save_trip_assessment(decision)
+            if dialog is not None:
+                dialog.dismiss()
+
+        def close(_button):
+            if dialog is not None:
+                dialog.dismiss()
+
         dialog = MDDialog(
             title=f"{result['recommendation']} · {result['score']:.0f}/100",
             text="\n".join([
@@ -2054,18 +2077,12 @@ class DriverControlApp(MDApp):
                 "",
                 "Por qué: " + " · ".join(result['reasons'][:4]),
             ]),
-            buttons=[],
+            buttons=[
+                MDFlatButton(text="RECHACÉ", on_release=lambda _x: mark("REJECTED")),
+                MDFlatButton(text="CERRAR", on_release=close),
+                MDFlatButton(text="ACEPTÉ", on_release=lambda _x: mark("ACCEPTED")),
+            ],
         )
-
-        def mark(decision):
-            self.save_trip_assessment(decision)
-            dialog.dismiss()
-
-        dialog.buttons = [
-            MDFlatButton(text="RECHACÉ", on_release=lambda _x: mark("REJECTED")),
-            MDFlatButton(text="CERRAR", on_release=lambda _x: dialog.dismiss()),
-            MDFlatButton(text="ACEPTÉ", on_release=lambda _x: mark("ACCEPTED")),
-        ]
         dialog.open()
 
     def save_trip_assessment(self, decision: str):

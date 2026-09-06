@@ -126,15 +126,72 @@ public class DriverOverlayService extends Service {
     }
 
     @Override public int onStartCommand(Intent intent, int flags, int startId) {
-        if (intent != null && ACTION_STOP.equals(intent.getAction())) {
-            stopSelf();
-            return START_NOT_STICKY;
-        }
-        startForeground(NOTIFICATION_ID, buildNotification());
-        if (Settings.canDrawOverlays(this)) showChangeBubble();
-        return START_STICKY;
+    if (intent != null && ACTION_STOP.equals(intent.getAction())) {
+        stopSelf();
+        return START_NOT_STICKY;
     }
 
+    startForeground(NOTIFICATION_ID, buildNotification());
+
+    if (Settings.canDrawOverlays(this)) {
+        showChangeBubble();
+    }
+
+    if (intent != null && ACTION_SOURCE_TEXT.equals(intent.getAction())) {
+        String raw = intent.getStringExtra(EXTRA_SOURCE_TEXT);
+        String source = intent.getStringExtra(EXTRA_SOURCE_KIND);
+        processSourceText(raw, source);
+    }
+
+    return START_STICKY;
+}
+private void processSourceText(String raw, String sourceKind) {
+    if (raw == null || raw.trim().isEmpty()) {
+        return;
+    }
+
+    List<String> lines = new ArrayList<>();
+
+    for (String line : raw.split("\\n")) {
+        String cleaned = line.trim();
+        if (!cleaned.isEmpty()) {
+            lines.add(cleaned);
+        }
+    }
+
+    Offer offer = parseOffer(lines);
+
+    if (offer == null || !offer.isUsable()) {
+        return;
+    }
+
+    Analysis analysis = analyze(offer);
+
+    String signature =
+            offer.fare + "|" +
+            offer.pickupMin + "|" +
+            offer.pickupKm + "|" +
+            offer.tripMin + "|" +
+            offer.tripKm;
+
+    getSharedPreferences("driver_control_overlay", MODE_PRIVATE)
+            .edit()
+            .putFloat("last_offer_fare", (float) offer.fare)
+            .apply();
+
+    lastOfferAt = android.os.SystemClock.elapsedRealtime();
+
+    mainHandler.removeCallbacks(hideStaleOffer);
+    mainHandler.postDelayed(
+            hideStaleOffer,
+            OFFER_VISIBLE_MS + 100L
+    );
+
+    if (!signature.equals(lastSignature) || tripOverlay == null) {
+        lastSignature = signature;
+        showOrUpdateTripOverlay(analysis);
+    }
+}
     private Notification buildNotification() {
         PendingIntent stop = PendingIntent.getService(this, 62,
                 new Intent(this, DriverOverlayService.class).setAction(ACTION_STOP),

@@ -8,7 +8,7 @@ import android.os.SystemClock;
 import android.provider.Settings;
 import android.view.accessibility.AccessibilityEvent;
 import android.view.accessibility.AccessibilityNodeInfo;
-
+import android.view.accessibility.AccessibilityWindowInfo;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -45,33 +45,73 @@ public class UberOfferAccessibilityService extends AccessibilityService {
         startOverlayIfAllowed();
     }
 
-    @Override public void onAccessibilityEvent(AccessibilityEvent event) {
-        if (event == null || event.getPackageName() == null) return;
-        if (!UBER_PACKAGE.equals(event.getPackageName().toString())) return;
-        long now = SystemClock.elapsedRealtime();
-        if (now - lastRefresh < MIN_REFRESH_MS) return;
-        lastRefresh = now;
+@Override public void onAccessibilityEvent(AccessibilityEvent event) {
+    if (event == null || event.getPackageName() == null) return;
+    if (!UBER_PACKAGE.equals(event.getPackageName().toString())) return;
 
-        AccessibilityNodeInfo root = getRootInActiveWindow();
-        if (root == null) return;
+    long now = SystemClock.elapsedRealtime();
+    if (now - lastRefresh < MIN_REFRESH_MS) return;
+    lastRefresh = now;
+
+    List<String> visible = new ArrayList<>();
+    Set<String> seen = new HashSet<>();
+    CollectState state = new CollectState();
+
+    // Primero intentamos leer directamente el nodo que generó el evento.
+    AccessibilityNodeInfo source = event.getSource();
+    if (source != null) {
         try {
-            List<String> visible = new ArrayList<>();
-            CollectState state = new CollectState();
-            collectVisibleText(root, visible, new HashSet<String>(), state, 0);
-            if (!visible.isEmpty()) broadcastText(visible);
+            collectVisibleText(source, visible, seen, state, 0);
         } finally {
-            try { root.recycle(); } catch (Exception ignored) {}
+            try { source.recycle(); } catch (Exception ignored) {}
         }
     }
+
+    // Después buscamos explícitamente la ventana perteneciente a Uber.
+    try {
+        List<AccessibilityWindowInfo> windows = getWindows();
+
+        if (windows != null) {
+            for (AccessibilityWindowInfo window : windows) {
+                if (window == null) continue;
+
+                AccessibilityNodeInfo root = window.getRoot();
+                if (root == null) continue;
+
+                try {
+                    CharSequence packageName = root.getPackageName();
+
+                    if (packageName != null &&
+                            UBER_PACKAGE.equals(packageName.toString())) {
+
+                        collectVisibleText(
+                                root,
+                                visible,
+                                seen,
+                                state,
+                                0
+                        );
+                    }
+                } finally {
+                    try { root.recycle(); } catch (Exception ignored) {}
+                }
+            }
+        }
+    } catch (Exception ignored) {
+    }
+
+    if (!visible.isEmpty()) {
+        broadcastText(visible);
+    }
+}
 
     private void collectVisibleText(AccessibilityNodeInfo node, List<String> out, Set<String> seen,
                                     CollectState state, int depth) {
         if (node == null || depth > MAX_DEPTH || state.nodes >= MAX_NODES || out.size() >= MAX_LINES) return;
         state.nodes++;
-        if (node.isVisibleToUser()) {
-            addText(node.getText(), out, seen);
-            addText(node.getContentDescription(), out, seen);
-        }
+       addText(node.getText(), out, seen);
+addText(node.getContentDescription(), out, seen);
+        
         int childCount = Math.min(node.getChildCount(), 40);
         for (int i = 0; i < childCount && state.nodes < MAX_NODES && out.size() < MAX_LINES; i++) {
             AccessibilityNodeInfo child = node.getChild(i);

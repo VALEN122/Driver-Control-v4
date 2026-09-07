@@ -1,0 +1,487 @@
+name: Aplicar fix Driver Control v5.3.2 y compilar APK
+
+on:
+  push:
+    branches: [ "main" ]
+    paths:
+      - ".github/workflows/aplicar-fix-v5.3.2.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  fix-build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Aplicar correcciones v5.3.2
+        shell: bash
+        run: |
+          set -euxo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace_between(source, start_marker, end_marker, replacement):
+              start = source.find(start_marker)
+              if start < 0:
+                  raise RuntimeError(f"No se encontró inicio: {start_marker}")
+              end = source.find(end_marker, start)
+              if end < 0:
+                  raise RuntimeError(f"No se encontró fin: {end_marker}")
+              return source[:start] + replacement + source[end:]
+
+          driver_path = Path("android_src/org/drivercontrol/drivercontrol/DriverOverlayService.java")
+          driver = driver_path.read_text(encoding="utf-8")
+
+          new_bubble = r'''    private void showChangeBubble() {
+              if (!Settings.canDrawOverlays(this) || windowManager == null) return;
+              if (changePanel != null && changePanel.getParent() != null) return;
+
+              if (changeBubble == null) {
+                  TextView bubble = new TextView(this);
+                  bubble.setText("$");
+                  bubble.setTextColor(Color.WHITE);
+                  bubble.setTextSize(24);
+                  bubble.setGravity(Gravity.CENTER);
+                  bubble.setTypeface(bubble.getTypeface(), android.graphics.Typeface.BOLD);
+                  bubble.setBackground(rounded(Color.rgb(0, 153, 204), 28, Color.WHITE));
+                  bubble.setElevation(dp(10));
+
+                  bubble.setOnTouchListener(new View.OnTouchListener() {
+                      float downRawX;
+                      float downRawY;
+                      int startX;
+                      int startY;
+                      long downAt;
+                      boolean moved;
+
+                      @Override
+                      public boolean onTouch(View v, android.view.MotionEvent event) {
+                          if (changeBubble == null || windowManager == null) return false;
+                          WindowManager.LayoutParams lp;
+                          try {
+                              lp = (WindowManager.LayoutParams) changeBubble.getLayoutParams();
+                          } catch (Throwable ignored) {
+                              return false;
+                          }
+
+                          switch (event.getActionMasked()) {
+                              case android.view.MotionEvent.ACTION_DOWN:
+                                  downRawX = event.getRawX();
+                                  downRawY = event.getRawY();
+                                  startX = lp.x;
+                                  startY = lp.y;
+                                  downAt = SystemClock.elapsedRealtime();
+                                  moved = false;
+                                  return true;
+
+                              case android.view.MotionEvent.ACTION_MOVE:
+                                  float dx = event.getRawX() - downRawX;
+                                  float dy = event.getRawY() - downRawY;
+                                  if (!moved && Math.hypot(dx, dy) >= dp(6)) moved = true;
+                                  if (moved) {
+                                      int width = Math.max(dp(58), changeBubble.getWidth());
+                                      int height = Math.max(dp(58), changeBubble.getHeight());
+                                      int screenW = getResources().getDisplayMetrics().widthPixels;
+                                      int screenH = getResources().getDisplayMetrics().heightPixels;
+                                      lp.x = Math.max(0, Math.min(screenW - width, startX + Math.round(dx)));
+                                      lp.y = Math.max(0, Math.min(screenH - height, startY + Math.round(dy)));
+                                      try { windowManager.updateViewLayout(changeBubble, lp); } catch (Throwable ignored) {}
+                                  }
+                                  return true;
+
+                              case android.view.MotionEvent.ACTION_UP:
+                              case android.view.MotionEvent.ACTION_CANCEL:
+                                  long held = SystemClock.elapsedRealtime() - downAt;
+                                  if (moved) {
+                                      getSharedPreferences("driver_control_overlay", MODE_PRIVATE)
+                                              .edit()
+                                              .putInt("change_bubble_x", lp.x)
+                                              .putInt("change_bubble_y", lp.y)
+                                              .apply();
+                                  } else if (held >= 550L) {
+                                      String message = lastReaderStatus;
+                                      if (!lastReaderExcerpt.isEmpty()) message += "\n" + lastReaderExcerpt;
+                                      showTransientStatus(message, !lastReaderStatus.contains("oferta completa")
+                                              && !lastReaderStatus.contains("oferta leída"));
+                                  } else if (event.getActionMasked() == android.view.MotionEvent.ACTION_UP) {
+                                      showChangePanel();
+                                  }
+                                  return true;
+
+                              default:
+                                  return true;
+                          }
+                      }
+                  });
+                  changeBubble = bubble;
+              }
+
+              if (changeBubble.getParent() == null) {
+                  try {
+                      windowManager.addView(changeBubble, bubbleLayoutParams());
+                  } catch (Throwable error) {
+                      changeBubble = null;
+                  }
+              }
+          }
+
+          '''
+
+          driver = replace_between(
+              driver,
+              "    private void showChangeBubble() {",
+              "    private WindowManager.LayoutParams bubbleLayoutParams() {",
+              new_bubble,
+          )
+
+          new_bubble_lp = r'''    private WindowManager.LayoutParams bubbleLayoutParams() {
+              WindowManager.LayoutParams lp = new WindowManager.LayoutParams(
+                      dp(58),
+                      dp(58),
+                      WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+                      WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+                              | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
+                              | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+                      PixelFormat.TRANSLUCENT
+              );
+              lp.gravity = Gravity.TOP | Gravity.START;
+              int screenW = getResources().getDisplayMetrics().widthPixels;
+              int screenH = getResources().getDisplayMetrics().heightPixels;
+              int size = dp(58);
+              SharedPreferences prefs = getSharedPreferences("driver_control_overlay", MODE_PRIVATE);
+              int defaultX = Math.max(0, screenW - size - dp(10));
+              int defaultY = Math.max(dp(100), (screenH - size) / 2);
+              lp.x = Math.max(0, Math.min(screenW - size, prefs.getInt("change_bubble_x", defaultX)));
+              lp.y = Math.max(0, Math.min(screenH - size, prefs.getInt("change_bubble_y", defaultY)));
+              return lp;
+          }
+
+          '''
+
+          driver = replace_between(
+              driver,
+              "    private WindowManager.LayoutParams bubbleLayoutParams() {",
+              "    private void showChangePanel() {",
+              new_bubble_lp,
+          )
+
+          old_bottom = '''        Button minimize = button("MINIMIZAR");
+                  bottomRow.addView(clear, new LinearLayout.LayoutParams(0, dp(50), 1f));
+                  bottomRow.addView(minimize, new LinearLayout.LayoutParams(0, dp(50), 1f));
+                  panel.addView(bottomRow);
+          '''
+          new_bottom = '''        Button minimize = button("MINIMIZAR");
+                  bottomRow.addView(clear, new LinearLayout.LayoutParams(0, dp(50), 1f));
+                  bottomRow.addView(minimize, new LinearLayout.LayoutParams(0, dp(50), 1f));
+                  panel.addView(bottomRow);
+
+                  Button readerToggle = button(isReaderPaused() ? "ACTIVAR LECTOR" : "PAUSAR LECTOR");
+                  panel.addView(readerToggle, new LinearLayout.LayoutParams(-1, dp(48)));
+          '''
+          if old_bottom not in driver:
+              raise RuntimeError("No se encontró bloque inferior del panel de vuelto")
+          driver = driver.replace(old_bottom, new_bottom, 1)
+
+          old_minimize = '''        minimize.setOnClickListener(v -> closeChangePanel());
+
+                  SharedPreferences prefs = getSharedPreferences("driver_control_overlay", MODE_PRIVATE);
+          '''
+          new_minimize = '''        minimize.setOnClickListener(v -> closeChangePanel());
+                  readerToggle.setOnClickListener(v -> {
+            if (!isUberReaderServiceEnabled()) {
+                showTransientStatus("Activá Driver Control en Accesibilidad", true);
+                openAccessibilitySettings();
+                return;
+            }
+            SharedPreferences readerPrefs = getSharedPreferences("driver_control_overlay", MODE_PRIVATE);
+            boolean paused = !readerPrefs.getBoolean("reader_paused", false);
+            readerPrefs.edit().putBoolean("reader_paused", paused).apply();
+            readerToggle.setText(paused ? "ACTIVAR LECTOR" : "PAUSAR LECTOR");
+            showTransientStatus(paused ? "Lector pausado" : "Lector activo", false);
+                  });
+
+                  SharedPreferences prefs = getSharedPreferences("driver_control_overlay", MODE_PRIVATE);
+          '''
+          if old_minimize not in driver:
+              raise RuntimeError("No se encontró listener de minimizar")
+          driver = driver.replace(old_minimize, new_minimize, 1)
+
+          helpers = r'''    private boolean isReaderPaused() {
+              return getSharedPreferences("driver_control_overlay", MODE_PRIVATE)
+                      .getBoolean("reader_paused", false);
+          }
+
+          private boolean isUberReaderServiceEnabled() {
+              try {
+                  String enabled = Settings.Secure.getString(
+                          getContentResolver(),
+                          Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
+                  );
+                  return enabled != null
+                          && enabled.toLowerCase(Locale.ROOT).contains("uberofferaccessibilityservice");
+              } catch (Throwable ignored) {
+                  return false;
+              }
+          }
+
+          private void openAccessibilitySettings() {
+              try {
+                  Intent intent = new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS);
+                  intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                  startActivity(intent);
+              } catch (Throwable ignored) {}
+          }
+
+          '''
+          marker = "    private EditText numberField(String hint) {"
+          if "private boolean isReaderPaused()" not in driver:
+              pos = driver.find(marker)
+              if pos < 0:
+                  raise RuntimeError("No se encontró punto para helpers del lector")
+              driver = driver[:pos] + helpers + driver[pos:]
+
+          new_choose = r'''            private static double chooseFare(List<String> lines) {
+                List<FareCandidate> candidates = new ArrayList<>();
+                for (int i = 0; i < lines.size(); i++) {
+                    String line = lines.get(i);
+                    String lower = line.toLowerCase(Locale.ROOT);
+                    String trimmed = line.trim();
+                    Matcher m = MONEY.matcher(line);
+                    while (m.find()) {
+                        double value = parseLocaleNumber(m.group(1));
+                        if (value < 100 || value > 2_000_000) continue;
+
+                        int score = 0;
+                        boolean leadingPlus = trimmed.startsWith("+")
+                                || (m.start() > 0 && line.substring(0, m.start()).trim().endsWith("+"));
+                        boolean supplemental = lower.contains("inicio de viaje")
+                                || lower.contains("incluido") || lower.contains("incluida")
+                                || lower.contains("bonif") || lower.contains("promoc")
+                                || lower.contains("propina") || lower.contains("peaje")
+                                || lower.contains("recompensa") || lower.contains("premio")
+                                || lower.contains("adicional");
+
+                        if (containsAny(lower, OFFER_HINTS)) score += 5;
+                        if (lower.contains("tarifa") || lower.contains("ganás") || lower.contains("ganas")) score += 4;
+                        if (lower.contains("$/") || lower.contains("por km") || lower.contains("por hora")) score -= 8;
+
+                        String upper = trimmed.toUpperCase(Locale.ROOT);
+                        if (!leadingPlus && !supplemental
+                                && (upper.startsWith("ARS") || trimmed.startsWith("$"))) {
+                            score += 7;
+                        }
+
+                        if (leadingPlus) score -= 18;
+                        if (supplemental) score -= 30;
+                        if (i < 14) score += 1;
+
+                        candidates.add(new FareCandidate(value, score, i));
+                    }
+                }
+                if (candidates.isEmpty()) return -1;
+
+                candidates.sort(Comparator
+                        .comparingInt((FareCandidate c) -> c.score).reversed()
+                        .thenComparingInt(c -> c.lineIndex)
+                        .thenComparingDouble(c -> -c.value));
+
+                int bestScore = candidates.get(0).score;
+                double best = candidates.get(0).value;
+
+                if (bestScore <= 3) {
+                    for (FareCandidate c : candidates) {
+                        if (c.score >= 0) best = Math.max(best, c.value);
+                    }
+                }
+                return best;
+            }
+
+          '''
+          driver = replace_between(
+              driver,
+              "            private static double chooseFare(List<String> lines) {",
+              "            private static List<MetricPair> extractPairs(List<String> lines) {",
+              new_choose,
+          )
+
+          driver_path.write_text(driver, encoding="utf-8")
+
+          accessibility_path = Path("android_src/org/drivercontrol/drivercontrol/UberOfferAccessibilityService.java")
+          accessibility = accessibility_path.read_text(encoding="utf-8")
+
+          old_event = '''        CharSequence pkg = event.getPackageName();
+                  if (pkg == null || !isUberPackage(pkg.toString())) return;
+
+                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+          '''
+          new_event = '''        CharSequence pkg = event.getPackageName();
+                  if (pkg == null || !isUberPackage(pkg.toString())) return;
+                  if (isReaderPaused()) return;
+
+                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+          '''
+          if old_event not in accessibility:
+              raise RuntimeError("No se encontró onAccessibilityEvent")
+          accessibility = accessibility.replace(old_event, new_event, 1)
+
+          old_ocr = '''            if (bitmap.getWidth() > MAX_OCR_WIDTH) {
+                int targetHeight = Math.max(
+                        1,
+                        Math.round(bitmap.getHeight() * (MAX_OCR_WIDTH / (float) bitmap.getWidth()))
+                );
+                ocrBitmap = Bitmap.createScaledBitmap(bitmap, MAX_OCR_WIDTH, targetHeight, true);
+            } else {
+                ocrBitmap = bitmap;
+            }
+          '''
+          new_ocr = '''            Bitmap working = bitmap;
+            int cropTop = Math.max(0, Math.round(bitmap.getHeight() * 0.24f));
+            if (cropTop > 0 && cropTop < bitmap.getHeight() - 120) {
+                ocrBitmap = Bitmap.createBitmap(
+                        bitmap,
+                        0,
+                        cropTop,
+                        bitmap.getWidth(),
+                        bitmap.getHeight() - cropTop
+                );
+                working = ocrBitmap;
+            }
+
+            if (working.getWidth() > MAX_OCR_WIDTH) {
+                int targetHeight = Math.max(
+                        1,
+                        Math.round(working.getHeight() * (MAX_OCR_WIDTH / (float) working.getWidth()))
+                );
+                Bitmap scaled = Bitmap.createScaledBitmap(working, MAX_OCR_WIDTH, targetHeight, true);
+                if (working != bitmap) recycle(working);
+                ocrBitmap = scaled;
+            } else {
+                ocrBitmap = working;
+            }
+          '''
+          if old_ocr not in accessibility:
+              raise RuntimeError("No se encontró bloque OCR")
+          accessibility = accessibility.replace(old_ocr, new_ocr, 1)
+
+          helper_marker = "    private boolean isUberPackage(String packageName) {"
+          pause_helper = '''    private boolean isReaderPaused() {
+                  return getSharedPreferences("driver_control_overlay", MODE_PRIVATE)
+                .getBoolean("reader_paused", false);
+              }
+
+          '''
+          if "private boolean isReaderPaused()" not in accessibility:
+              pos = accessibility.find(helper_marker)
+              if pos < 0:
+                  raise RuntimeError("No se encontró isUberPackage")
+              accessibility = accessibility[:pos] + pause_helper + accessibility[pos:]
+
+          accessibility_path.write_text(accessibility, encoding="utf-8")
+
+          main_path = Path("main.py")
+          main = main_path.read_text(encoding="utf-8")
+          main = main.replace('APP_VERSION = "5.3.0"', 'APP_VERSION = "5.3.2"')
+          main_path.write_text(main, encoding="utf-8")
+
+          spec = Path("buildozer.spec")
+          spec_text = spec.read_text(encoding="utf-8")
+          spec_text = spec_text.replace("version = 5.3.0", "version = 5.3.2")
+          spec.write_text(spec_text, encoding="utf-8")
+
+          changelog = '''# Driver Control 5.3.2 — tarifa correcta y controles flotantes
+
+          - La tarifa principal ya no se confunde con `+ARS ... por inicio de viaje` ni extras incluidos.
+          - El OCR ignora la propia tarjeta de recomendación para evitar lecturas en bucle.
+          - La burbuja `$` se puede arrastrar y recuerda su posición.
+          - El panel de vuelto permite pausar/reactivar el lector desde Uber.
+          - Si Accesibilidad está apagada, el botón abre directamente su configuración.
+          '''
+          Path("CHANGELOG_5.3.2.md").write_text(changelog, encoding="utf-8")
+          PY
+
+          python3 -m py_compile main.py
+          grep -q 'APP_VERSION = "5.3.2"' main.py
+          grep -q 'change_bubble_x' android_src/org/drivercontrol/drivercontrol/DriverOverlayService.java
+          grep -q 'reader_paused' android_src/org/drivercontrol/drivercontrol/UberOfferAccessibilityService.java
+          git diff --check
+
+      - name: Compilar APK Android v5.3.2
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          cp buildozer.spec buildozer.spec.complete
+          trap 'mv -f buildozer.spec.complete buildozer.spec 2>/dev/null || true' EXIT
+
+          sed -i '/^android.extra_manifest_application_arguments[[:space:]]*=/d' buildozer.spec
+          docker run --rm -v "$PWD":/home/user/hostcwd ghcr.io/kivy/buildozer:latest android debug
+
+          sudo chown -R "$(id -u):$(id -g)" .buildozer bin || true
+
+          MANIFEST_PATH=$(find .buildozer/android/platform -path '*/dists/drivercontrol/src/main/AndroidManifest.xml' -print -quit)
+          test -n "$MANIFEST_PATH"
+          DIST_DIR=$(dirname "$(dirname "$(dirname "$MANIFEST_PATH")")")
+
+          if ! grep -q 'UberOfferAccessibilityService' "$MANIFEST_PATH"; then
+            sed -i '/<\/application>/e cat android_manifest/application_services.xml' "$MANIFEST_PATH"
+          fi
+
+          JAVA_DST="$DIST_DIR/src/main/java/org/drivercontrol/drivercontrol"
+          mkdir -p "$JAVA_DST"
+          cp -v android_src/org/drivercontrol/drivercontrol/DriverOverlayService.java "$JAVA_DST/"
+          cp -v android_src/org/drivercontrol/drivercontrol/UberOfferAccessibilityService.java "$JAVA_DST/"
+          cp -v android_src/org/drivercontrol/drivercontrol/OcrCaptureService.java "$JAVA_DST/"
+
+          (cd "$DIST_DIR" && ./gradlew --version && ./gradlew clean assembleDebug)
+
+          APK_PATH=$(find "$DIST_DIR/build/outputs/apk/debug" -name '*.apk' -print -quit)
+          test -n "$APK_PATH"
+          unzip -t "$APK_PATH"
+
+          APKSIGNER=$(find .buildozer -type f -name apksigner -print | sort -V | tail -1 || true)
+          if [ -n "$APKSIGNER" ]; then
+            "$APKSIGNER" verify --verbose "$APK_PATH"
+          fi
+
+          mkdir -p release
+          cp "$APK_PATH" release/Driver-Control-v5.3.2-FIX-TARIFA-BURBUJA.apk
+
+      - name: Subir APK v5.3.2
+        uses: actions/upload-artifact@v4
+        with:
+          name: Driver-Control-v5.3.2-FIX-TARIFA-BURBUJA
+          path: release/Driver-Control-v5.3.2-FIX-TARIFA-BURBUJA.apk
+          if-no-files-found: error
+
+      - name: Guardar código v5.3.2 en main
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add \
+            main.py \
+            buildozer.spec \
+            CHANGELOG_5.3.2.md \
+            android_src/org/drivercontrol/drivercontrol/DriverOverlayService.java \
+            android_src/org/drivercontrol/drivercontrol/UberOfferAccessibilityService.java
+
+          if git diff --cached --quiet; then
+            echo "No hay cambios nuevos para guardar."
+          else
+            git commit -m "Driver Control v5.3.2: tarifa correcta y burbuja móvil [skip ci]"
+            git push origin HEAD:main
+          fi

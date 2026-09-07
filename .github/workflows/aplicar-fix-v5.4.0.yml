@@ -1,0 +1,288 @@
+name: Driver Control v5.4.0 - lector estricto Uber
+
+on:
+  push:
+    branches: [ "main" ]
+    paths:
+      - ".github/workflows/aplicar-fix-v5.4.0.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  fix-build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Aplicar lector estricto v5.4.0
+        shell: bash
+        run: |
+          set -euxo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          parser_path = Path("android_src/org/drivercontrol/drivercontrol/DriverOverlayService.java")
+          s = parser_path.read_text(encoding="utf-8")
+
+          start = s.find("            public static ParseResult parse(String raw) {")
+          end = s.find("            private static List<String> sanitizeLines(String raw) {", start)
+          if start < 0 or end < 0:
+              raise RuntimeError("No se encontró OfferParser.parse")
+
+          strict_parse = r'''            public static ParseResult parse(String raw) {
+                if (raw == null || raw.trim().isEmpty()) {
+                    return ParseResult.failure("sin texto", false, "");
+                }
+
+                List<String> lines = sanitizeLines(raw);
+                if (lines.isEmpty()) {
+                    return ParseResult.failure("sin texto útil", false, "");
+                }
+
+                String joined = join(lines, " | ");
+                String lower = joined.toLowerCase(Locale.ROOT);
+
+                boolean hasUberProduct = lower.contains("uberx")
+                        || lower.contains("uber priority")
+                        || lower.contains("comfort")
+                        || lower.contains("moto");
+                boolean hasTripLabel = lower.contains("viaje:") || lower.contains("viaje :");
+                boolean hasCardAction = lower.contains("aceptar") || lower.contains("viaje disponible");
+
+                if (!hasUberProduct || !hasTripLabel || !hasCardAction) {
+                    return ParseResult.failure("sin oferta visible", false, excerpt(joined));
+                }
+
+                Pattern pickupPattern = Pattern.compile(
+                        "(?i)\\bA\\s+([0-9OIl|]+(?:[.,][0-9OIl|]+)?)\\s*min\\.?\\s*\\(\\s*"
+                                + "([0-9OIl|]+(?:[.,][0-9OIl|]+)?)\\s*km\\s*\\)"
+                );
+                Pattern tripPattern = Pattern.compile(
+                        "(?i)\\bViaje\\s*:\\s*([0-9OIl|]+(?:[.,][0-9OIl|]+)?)\\s*min\\.?\\s*\\(\\s*"
+                                + "([0-9OIl|]+(?:[.,][0-9OIl|]+)?)\\s*km\\s*\\)"
+                );
+
+                Matcher pickupMatcher = pickupPattern.matcher(joined);
+                Matcher tripMatcher = tripPattern.matcher(joined);
+
+                if (!pickupMatcher.find()) {
+                    return ParseResult.failure("no pude leer la búsqueda", true, excerpt(joined));
+                }
+                if (!tripMatcher.find()) {
+                    return ParseResult.failure("no pude leer el viaje", true, excerpt(joined));
+                }
+
+                double pickupMin = parseLocaleNumber(pickupMatcher.group(1));
+                double pickupKm = parseLocaleNumber(pickupMatcher.group(2));
+                double tripMin = parseLocaleNumber(tripMatcher.group(1));
+                double tripKm = parseLocaleNumber(tripMatcher.group(2));
+
+                Pattern farePattern = Pattern.compile(
+                        "(?i)(?<!\\+)\\bARS\\s*([0-9OIl|][0-9OIl|.,]*)"
+                );
+                Matcher fareMatcher = farePattern.matcher(joined);
+                double fare = -1.0;
+
+                while (fareMatcher.find()) {
+                    int from = Math.max(0, fareMatcher.start() - 3);
+                    String before = joined.substring(from, fareMatcher.start());
+                    if (before.contains("+")) continue;
+
+                    double candidate = parseLocaleNumber(fareMatcher.group(1));
+                    if (candidate >= 500 && candidate <= 500000) {
+                        fare = candidate;
+                        break;
+                    }
+                }
+
+                if (fare < 0) {
+                    Pattern dollarPattern = Pattern.compile(
+                            "(?i)(?<![+0-9])\\$\\s*([0-9OIl|][0-9OIl|.,]*)"
+                    );
+                    Matcher dollarMatcher = dollarPattern.matcher(joined);
+                    while (dollarMatcher.find()) {
+                        double candidate = parseLocaleNumber(dollarMatcher.group(1));
+                        if (candidate >= 500 && candidate <= 500000) {
+                            fare = candidate;
+                            break;
+                        }
+                    }
+                }
+
+                if (fare < 0) {
+                    return ParseResult.failure("no pude leer la tarifa", true, excerpt(joined));
+                }
+
+                MetricPair pickup = new MetricPair(pickupMin, pickupKm, "pickup estricto");
+                MetricPair trip = new MetricPair(tripMin, tripKm, "viaje estricto");
+
+                if (!isReasonablePair(pickup) || !isReasonablePair(trip)) {
+                    return ParseResult.failure("datos fuera de rango", true, excerpt(joined));
+                }
+                if (pickupKm > 30 || pickupMin > 90 || tripKm > 250 || tripMin > 240) {
+                    return ParseResult.failure("lectura incoherente", true, excerpt(joined));
+                }
+
+                Offer offer = new Offer(fare, pickupMin, pickupKm, tripMin, tripKm);
+                return ParseResult.success(offer, excerpt(joined));
+            }
+
+'''
+
+          s = s[:start] + strict_parse + s[end:]
+
+          old_invalid = '''        if (parsed.offer == null || !parsed.offer.isUsable()) {
+            if (parsed.candidate) showTransientStatus(diagnostic, true);
+            return;
+        }
+'''
+          new_invalid = '''        if (parsed.offer == null || !parsed.offer.isUsable()) {
+            hideTripOverlay();
+            if (parsed.candidate) showTransientStatus(diagnostic, true);
+            return;
+        }
+'''
+          if old_invalid not in s:
+              raise RuntimeError("No se encontró bloque de oferta inválida")
+          s = s.replace(old_invalid, new_invalid, 1)
+          parser_path.write_text(s, encoding="utf-8")
+
+          ocr_path = Path("android_src/org/drivercontrol/drivercontrol/UberOfferAccessibilityService.java")
+          o = ocr_path.read_text(encoding="utf-8")
+
+          old_ocr = '''            if (bitmap.getWidth() > MAX_OCR_WIDTH) {
+                int targetHeight = Math.max(
+                        1,
+                        Math.round(bitmap.getHeight() * (MAX_OCR_WIDTH / (float) bitmap.getWidth()))
+                );
+                ocrBitmap = Bitmap.createScaledBitmap(bitmap, MAX_OCR_WIDTH, targetHeight, true);
+            } else {
+                ocrBitmap = bitmap;
+            }
+'''
+          new_ocr = '''            Bitmap working = bitmap;
+            int cropTop = Math.max(0, Math.round(bitmap.getHeight() * 0.27f));
+            if (cropTop > 0 && cropTop < bitmap.getHeight() - 200) {
+                ocrBitmap = Bitmap.createBitmap(
+                        bitmap,
+                        0,
+                        cropTop,
+                        bitmap.getWidth(),
+                        bitmap.getHeight() - cropTop
+                );
+                working = ocrBitmap;
+            }
+
+            if (working.getWidth() > MAX_OCR_WIDTH) {
+                int targetHeight = Math.max(
+                        1,
+                        Math.round(working.getHeight() * (MAX_OCR_WIDTH / (float) working.getWidth()))
+                );
+                Bitmap scaled = Bitmap.createScaledBitmap(working, MAX_OCR_WIDTH, targetHeight, true);
+                if (working != bitmap) recycle(working);
+                ocrBitmap = scaled;
+            } else {
+                ocrBitmap = working;
+            }
+'''
+          if old_ocr not in o:
+              raise RuntimeError("No se encontró bloque OCR")
+          o = o.replace(old_ocr, new_ocr, 1)
+          ocr_path.write_text(o, encoding="utf-8")
+
+          main_path = Path("main.py")
+          main = main_path.read_text(encoding="utf-8")
+          main = re.sub(r'APP_VERSION = "[0-9.]+"', 'APP_VERSION = "5.4.0"', main, count=1)
+          main_path.write_text(main, encoding="utf-8")
+
+          spec_path = Path("buildozer.spec")
+          spec = spec_path.read_text(encoding="utf-8")
+          spec = re.sub(r'(?m)^version\s*=\s*[0-9.]+\s*$', 'version = 5.4.0', spec, count=1)
+          spec_path.write_text(spec, encoding="utf-8")
+          PY
+
+          python3 -m py_compile main.py
+          grep -q 'APP_VERSION = "5.4.0"' main.py
+          grep -q 'pickup estricto' android_src/org/drivercontrol/drivercontrol/DriverOverlayService.java
+          grep -q 'cropTop' android_src/org/drivercontrol/drivercontrol/UberOfferAccessibilityService.java
+          git diff --check
+
+      - name: Compilar APK v5.4.0
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          cp buildozer.spec buildozer.spec.original
+          trap 'mv -f buildozer.spec.original buildozer.spec 2>/dev/null || true' EXIT
+          sed -i '/^android.extra_manifest_application_arguments[[:space:]]*=/d' buildozer.spec
+
+          docker run --rm \
+            -v "$PWD":/home/user/hostcwd \
+            ghcr.io/kivy/buildozer:latest \
+            android debug
+
+          sudo chown -R "$(id -u):$(id -g)" .buildozer bin || true
+
+          MANIFEST_PATH=$(find .buildozer/android/platform \
+            -path '*/dists/drivercontrol/src/main/AndroidManifest.xml' \
+            -print -quit)
+          test -n "$MANIFEST_PATH"
+
+          DIST_DIR=$(dirname "$(dirname "$(dirname "$MANIFEST_PATH")")")
+
+          if ! grep -q 'UberOfferAccessibilityService' "$MANIFEST_PATH"; then
+            sed -i '/<\/application>/e cat android_manifest/application_services.xml' "$MANIFEST_PATH"
+          fi
+
+          JAVA_DST="$DIST_DIR/src/main/java/org/drivercontrol/drivercontrol"
+          mkdir -p "$JAVA_DST"
+
+          cp android_src/org/drivercontrol/drivercontrol/DriverOverlayService.java "$JAVA_DST/"
+          cp android_src/org/drivercontrol/drivercontrol/UberOfferAccessibilityService.java "$JAVA_DST/"
+          cp android_src/org/drivercontrol/drivercontrol/OcrCaptureService.java "$JAVA_DST/"
+
+          (cd "$DIST_DIR" && ./gradlew clean assembleDebug)
+
+          APK_PATH=$(find "$DIST_DIR/build/outputs/apk/debug" -name '*.apk' -print -quit)
+          test -n "$APK_PATH"
+          unzip -t "$APK_PATH"
+
+          mkdir -p release
+          cp "$APK_PATH" release/Driver-Control-v5.4.0-LECTOR-ESTRICTO.apk
+
+      - name: Subir APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Driver-Control-v5.4.0-LECTOR-ESTRICTO
+          path: release/Driver-Control-v5.4.0-LECTOR-ESTRICTO.apk
+          if-no-files-found: error
+
+      - name: Guardar cambios
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add \
+            main.py \
+            buildozer.spec \
+            android_src/org/drivercontrol/drivercontrol/DriverOverlayService.java \
+            android_src/org/drivercontrol/drivercontrol/UberOfferAccessibilityService.java
+
+          if git diff --cached --quiet; then
+            echo "Sin cambios."
+          else
+            git commit -m "Driver Control v5.4.0: lector estricto Uber [skip ci]"
+            git push origin HEAD:main
+          fi

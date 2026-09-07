@@ -1,0 +1,339 @@
+name: Driver Control v5.3.4 - evitar lecturas falsas
+
+on:
+  push:
+    branches: [ "main" ]
+    paths:
+      - ".github/workflows/aplicar-fix-v5.3.4.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  fix-build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Corregir lector v5.3.4
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          java_path = Path(
+              "android_src/org/drivercontrol/drivercontrol/DriverOverlayService.java"
+          )
+          text = java_path.read_text(encoding="utf-8")
+
+          # ---------------------------------------------------------
+          # 1. Solo considerar "oferta" si realmente parece una tarjeta
+          #    de solicitud de viaje de Uber.
+          #    El mapa de tarifa dinámica NO debe ser candidato.
+          # ---------------------------------------------------------
+          pattern = re.compile(
+              r'''                boolean hasMoney = MONEY\.matcher\(joined\)\.find\(\);\n'''
+              r'''                boolean hasMinutes = MINUTES\.matcher\(joined\)\.find\(\);\n'''
+              r'''                boolean hasKm = KM\.matcher\(joined\)\.find\(\);\n'''
+              r'''                boolean candidate = hasMoney \|\| \(hasMinutes && hasKm\) \|\| containsAny\(joined\.toLowerCase\(Locale\.ROOT\), OFFER_HINTS\);\n'''
+          )
+
+          replacement = '''                boolean hasMoney = MONEY.matcher(joined).find();
+                boolean hasMinutes = MINUTES.matcher(joined).find();
+                boolean hasKm = KM.matcher(joined).find();
+
+                String lowerJoined = joined.toLowerCase(Locale.ROOT);
+
+                boolean hasAccept =
+                        lowerJoined.contains("aceptar")
+                        || lowerJoined.contains("aceptá")
+                        || lowerJoined.contains("acepta");
+
+                boolean hasTripLabel =
+                        lowerJoined.contains("viaje:")
+                        || lowerJoined.contains("viaje :")
+                        || lowerJoined.contains("de viaje");
+
+                boolean candidate =
+                        hasMoney
+                        && hasMinutes
+                        && hasKm
+                        && hasAccept
+                        && hasTripLabel;
+
+                // No seguir interpretando el mapa de tarifa dinámica como si fuera
+                // una solicitud. Sin Aceptar + Viaje no hay oferta válida.
+                if (!candidate) {
+                    return ParseResult.failure(
+                            "sin oferta visible",
+                            false,
+                            excerpt(joined)
+                    );
+                }
+'''
+
+          text, n = pattern.subn(replacement, text, count=1)
+          if n != 1:
+              raise RuntimeError("No se pudo reemplazar la validación de oferta")
+
+          # ---------------------------------------------------------
+          # 2. Si una lectura deja de ser válida, retirar el cartel viejo.
+          #    Es preferible no mostrar nada antes que mostrar datos falsos.
+          # ---------------------------------------------------------
+          old_invalid = '''        if (parsed.offer == null || !parsed.offer.isUsable()) {
+            if (parsed.candidate) showTransientStatus(diagnostic, true);
+            return;
+        }
+'''
+          new_invalid = '''        if (parsed.offer == null || !parsed.offer.isUsable()) {
+            hideTripOverlay();
+            if (parsed.candidate) showTransientStatus(diagnostic, true);
+            return;
+        }
+'''
+          if old_invalid not in text:
+              raise RuntimeError("No se encontró control de oferta inválida")
+          text = text.replace(old_invalid, new_invalid, 1)
+
+          # ---------------------------------------------------------
+          # 3. Tarifa: ignorar directamente extras +ARS, "incluido",
+          #    "inicio de viaje", promociones, etc.
+          # ---------------------------------------------------------
+          start = text.find(
+              "            private static double chooseFare(List<String> lines) {"
+          )
+          end = text.find(
+              "            private static List<MetricPair> extractPairs(List<String> lines) {",
+              start
+          )
+          if start < 0 or end < 0:
+              raise RuntimeError("No se encontró chooseFare")
+
+          choose_fare = r'''            private static double chooseFare(List<String> lines) {
+                List<FareCandidate> candidates = new ArrayList<>();
+
+                for (int i = 0; i < lines.size(); i++) {
+                    String line = lines.get(i);
+                    String lower = line.toLowerCase(Locale.ROOT);
+                    String trimmed = line.trim();
+
+                    Matcher m = MONEY.matcher(line);
+
+                    while (m.find()) {
+                        double value = parseLocaleNumber(m.group(1));
+                        if (value < 100 || value > 2_000_000) continue;
+
+                        String before = line.substring(0, m.start()).trim();
+
+                        boolean plusAmount =
+                                trimmed.startsWith("+")
+                                || before.endsWith("+");
+
+                        boolean supplemental =
+                                lower.contains("inicio de viaje")
+                                || lower.contains("incluido")
+                                || lower.contains("incluida")
+                                || lower.contains("bonif")
+                                || lower.contains("promoc")
+                                || lower.contains("propina")
+                                || lower.contains("peaje")
+                                || lower.contains("recompensa")
+                                || lower.contains("premio")
+                                || lower.contains("adicional")
+                                || lower.contains("próximo viaje")
+                                || lower.contains("proximo viaje")
+                                || lower.contains("tarifa dinámica")
+                                || lower.contains("tarifa dinamica");
+
+                        // Nunca usar estos importes como tarifa principal.
+                        if (plusAmount || supplemental) continue;
+
+                        int score = 0;
+
+                        if (lower.contains("tarifa")
+                                || lower.contains("ganás")
+                                || lower.contains("ganas")) {
+                            score += 8;
+                        }
+
+                        String upper = trimmed.toUpperCase(Locale.ROOT);
+
+                        if (upper.startsWith("ARS") || trimmed.startsWith("$")) {
+                            score += 12;
+                        }
+
+                        if (containsAny(lower, OFFER_HINTS)) score += 3;
+
+                        if (lower.contains("$/")
+                                || lower.contains("por km")
+                                || lower.contains("por hora")) {
+                            score -= 20;
+                        }
+
+                        if (i < 14) score += 2;
+
+                        candidates.add(new FareCandidate(value, score, i));
+                    }
+                }
+
+                if (candidates.isEmpty()) return -1;
+
+                candidates.sort(
+                        Comparator
+                                .comparingInt((FareCandidate c) -> c.score)
+                                .reversed()
+                                .thenComparingInt(c -> c.lineIndex)
+                                .thenComparingDouble(c -> -c.value)
+                );
+
+                return candidates.get(0).value;
+            }
+
+'''
+
+          text = text[:start] + choose_fare + text[end:]
+          java_path.write_text(text, encoding="utf-8")
+
+          # Versión
+          main_path = Path("main.py")
+          main = main_path.read_text(encoding="utf-8")
+          main = re.sub(
+              r'APP_VERSION = "5\.3\.[0-9]+"',
+              'APP_VERSION = "5.3.4"',
+              main,
+              count=1
+          )
+          main_path.write_text(main, encoding="utf-8")
+
+          spec_path = Path("buildozer.spec")
+          spec = spec_path.read_text(encoding="utf-8")
+          spec = re.sub(
+              r'(?m)^version\s*=\s*5\.3\.[0-9]+\s*$',
+              'version = 5.3.4',
+              spec,
+              count=1
+          )
+          spec_path.write_text(spec, encoding="utf-8")
+
+          Path("CHANGELOG_5.3.4.md").write_text(
+              "# Driver Control 5.3.4\n\n"
+              "- El mapa de tarifa dinámica ya no se interpreta como una oferta.\n"
+              "- Se exige Aceptar + Viaje + dinero + minutos + km antes de analizar.\n"
+              "- Los importes +ARS, incluidos e inicio de viaje se excluyen de la tarifa.\n"
+              "- Una lectura incompleta elimina inmediatamente el cartel anterior.\n",
+              encoding="utf-8"
+          )
+          PY
+
+          python3 -m py_compile main.py
+          grep -q 'APP_VERSION = "5.3.4"' main.py
+          grep -q 'sin oferta visible' \
+            android_src/org/drivercontrol/drivercontrol/DriverOverlayService.java
+          grep -q 'próximo viaje' \
+            android_src/org/drivercontrol/drivercontrol/DriverOverlayService.java
+          git diff --check
+
+      - name: Compilar APK v5.3.4
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          cp buildozer.spec buildozer.spec.original
+          trap 'mv -f buildozer.spec.original buildozer.spec 2>/dev/null || true' EXIT
+
+          sed -i \
+            '/^android.extra_manifest_application_arguments[[:space:]]*=/d' \
+            buildozer.spec
+
+          docker run --rm \
+            -v "$PWD":/home/user/hostcwd \
+            ghcr.io/kivy/buildozer:latest \
+            android debug
+
+          sudo chown -R "$(id -u):$(id -g)" .buildozer bin || true
+
+          MANIFEST_PATH=$(find .buildozer/android/platform \
+            -path '*/dists/drivercontrol/src/main/AndroidManifest.xml' \
+            -print -quit)
+
+          test -n "$MANIFEST_PATH"
+          DIST_DIR=$(dirname "$(dirname "$(dirname "$MANIFEST_PATH")")")
+
+          if ! grep -q 'UberOfferAccessibilityService' "$MANIFEST_PATH"; then
+            sed -i \
+              '/<\/application>/e cat android_manifest/application_services.xml' \
+              "$MANIFEST_PATH"
+          fi
+
+          JAVA_DST="$DIST_DIR/src/main/java/org/drivercontrol/drivercontrol"
+          mkdir -p "$JAVA_DST"
+
+          cp \
+            android_src/org/drivercontrol/drivercontrol/DriverOverlayService.java \
+            "$JAVA_DST/"
+
+          cp \
+            android_src/org/drivercontrol/drivercontrol/UberOfferAccessibilityService.java \
+            "$JAVA_DST/"
+
+          cp \
+            android_src/org/drivercontrol/drivercontrol/OcrCaptureService.java \
+            "$JAVA_DST/"
+
+          (
+            cd "$DIST_DIR"
+            ./gradlew clean assembleDebug
+          )
+
+          APK_PATH=$(find "$DIST_DIR/build/outputs/apk/debug" \
+            -name '*.apk' -print -quit)
+
+          test -n "$APK_PATH"
+          unzip -t "$APK_PATH"
+
+          mkdir -p release
+          cp "$APK_PATH" \
+            release/Driver-Control-v5.3.4-SIN-FALSOS-POSITIVOS.apk
+
+      - name: Subir APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Driver-Control-v5.3.4-SIN-FALSOS-POSITIVOS
+          path: release/Driver-Control-v5.3.4-SIN-FALSOS-POSITIVOS.apk
+          if-no-files-found: error
+
+      - name: Guardar cambios
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git config user.name "github-actions[bot]"
+          git config user.email \
+            "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add \
+            main.py \
+            buildozer.spec \
+            CHANGELOG_5.3.4.md \
+            android_src/org/drivercontrol/drivercontrol/DriverOverlayService.java
+
+          if git diff --cached --quiet; then
+            echo "Sin cambios."
+          else
+            git commit \
+              -m "Driver Control v5.3.4: evitar lecturas falsas [skip ci]"
+            git push origin HEAD:main
+          fi

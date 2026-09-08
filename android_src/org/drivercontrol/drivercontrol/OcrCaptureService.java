@@ -28,9 +28,19 @@ import com.google.mlkit.vision.text.TextRecognition;
 import com.google.mlkit.vision.text.TextRecognizer;
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions;
 
+import java.text.NumberFormat;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
 /**
  * Captura autorizada + OCR local con ML Kit.
  * No persiste ni transmite capturas. Solo envía el texto reconocido al parser local.
+ *
+ * También reconoce la pantalla de cobro simple (por ejemplo AR$5.600) y deja
+ * ese importe precargado para la calculadora flotante de vuelto.
  */
 public class OcrCaptureService extends Service {
     public static final String ACTION_START = "org.drivercontrol.drivercontrol.OCR_START";
@@ -42,6 +52,18 @@ public class OcrCaptureService extends Service {
     private static final int NOTIFICATION_ID = 52;
     private static final long FRAME_INTERVAL_MS = 900L;
     private static final int MAX_OCR_WIDTH = 1080;
+    private static final long CASH_REPEAT_GUARD_MS = 5000L;
+
+    // Acepta ARS6.506, ARS 6,506, AR$5.600 y $5.600.
+    private static final Pattern MONEY = Pattern.compile(
+            "(?i)(?:ARS\\s*|AR\\s*\\$\\s*|\\$\\s*)([0-9OIl|][0-9OIl|.,\\s]*)"
+    );
+    private static final Pattern MINUTES = Pattern.compile(
+            "(?i)[0-9OIl|]+(?:[.,][0-9OIl|]+)?\\s*(?:min\\.?|minuto(?:s)?)\\b"
+    );
+    private static final Pattern KM = Pattern.compile(
+            "(?i)[0-9OIl|]+(?:[.,][0-9OIl|]+)?\\s*(?:km|kil[oó]metro(?:s)?)\\b"
+    );
 
     private HandlerThread thread;
     private Handler worker;
@@ -52,6 +74,8 @@ public class OcrCaptureService extends Service {
     private volatile boolean processing;
     private long lastFrameAt;
     private int lastTextHash;
+    private long lastCashAt;
+    private double lastCashFare = -1.0;
 
     @Override
     public void onCreate() {
@@ -197,11 +221,18 @@ public class OcrCaptureService extends Service {
                 .addOnSuccessListener(result -> {
                     String text = result.getText();
                     if (text == null) return;
-                    String trimmed = text.trim();
+                    String trimmed = normalizeCurrencyTokens(text.trim());
                     if (trimmed.isEmpty()) return;
                     int hash = trimmed.hashCode();
                     if (hash == lastTextHash) return;
                     lastTextHash = hash;
+
+                    double cashFare = detectStandaloneCashFare(trimmed);
+                    if (cashFare >= 100.0) {
+                        rememberCashFare(cashFare);
+                        return;
+                    }
+
                     sendText(trimmed);
                 })
                 .addOnFailureListener(error -> sendStatus("OCR no pudo leer este cuadro"))
@@ -209,6 +240,128 @@ public class OcrCaptureService extends Service {
                     if (!bitmapForOcr.isRecycled()) bitmapForOcr.recycle();
                     processing = false;
                 });
+    }
+
+    /**
+     * Detecta la pantalla simple de cobro. La regla es deliberadamente estricta:
+     * no debe contener minutos/km ni señales típicas de la tarjeta de oferta.
+     */
+    private double detectStandaloneCashFare(String text) {
+        if (text == null || text.trim().isEmpty()) return -1.0;
+        String lower = text.toLowerCase(Locale.ROOT);
+
+        // Evita leer nuestro propio flotante/panel.
+        if (lower.contains("driver control")
+                || lower.contains("vuelto rápido")
+                || lower.contains("vuelto rapido")
+                || lower.contains("importe del viaje")
+                || lower.contains("recibido")
+                || lower.contains("minimizar")
+                || lower.contains("limpiar")) {
+            return -1.0;
+        }
+
+        // Si hay métricas, es una oferta y debe ir al OfferParser normal.
+        if (MINUTES.matcher(text).find() || KM.matcher(text).find()) return -1.0;
+
+        // Señales claras de la segunda pantalla (oferta de viaje).
+        if (lower.contains("uber priority")
+                || lower.contains("dni verificado")
+                || lower.contains("por inicio de viaje")
+                || lower.contains("incluido")
+                || lower.contains("exclusivo")
+                || lower.contains("aceptar")
+                || lower.contains("viaje:")) {
+            return -1.0;
+        }
+
+        Matcher matcher = MONEY.matcher(text);
+        List<Double> unique = new ArrayList<>();
+        while (matcher.find() && unique.size() < 6) {
+            double value = parseLocaleNumber(matcher.group(1));
+            if (value < 100.0 || value > 2_000_000.0) continue;
+            boolean duplicate = false;
+            for (double existing : unique) {
+                if (Math.abs(existing - value) < 0.5) {
+                    duplicate = true;
+                    break;
+                }
+            }
+            if (!duplicate) unique.add(value);
+        }
+
+        if (unique.isEmpty()) return -1.0;
+
+        boolean cashContext = lower.contains("cobrar")
+                || lower.contains("cobro")
+                || lower.contains("efectivo")
+                || lower.contains("paga")
+                || lower.contains("pagar")
+                || lower.contains("total a cobrar")
+                || lower.contains("importe");
+
+        // La pantalla de referencia tiene un único importe grande. Si hay varios
+        // importes, solo aceptamos la lectura cuando existe contexto explícito de cobro.
+        if (unique.size() > 1 && !cashContext) return -1.0;
+
+        double best = unique.get(0);
+        if (cashContext) {
+            for (double value : unique) best = Math.max(best, value);
+        }
+        return best;
+    }
+
+    private void rememberCashFare(double fare) {
+        long now = SystemClock.elapsedRealtime();
+        if (Math.abs(lastCashFare - fare) < 0.5 && now - lastCashAt < CASH_REPEAT_GUARD_MS) return;
+        lastCashFare = fare;
+        lastCashAt = now;
+
+        getSharedPreferences("driver_control_overlay", MODE_PRIVATE)
+                .edit()
+                .putFloat("last_offer_fare", (float) fare)
+                .putFloat("last_cash_fare", (float) fare)
+                .putLong("last_cash_detected_at", System.currentTimeMillis())
+                .apply();
+
+        startOverlayIfAllowed();
+        sendStatus("OCR · cobro detectado " + money(fare) + " · tocá $ para vuelto");
+    }
+
+    /** Normaliza AR$ para que el parser de ofertas también pueda leerlo como ARS. */
+    private String normalizeCurrencyTokens(String text) {
+        if (text == null) return "";
+        return text.replaceAll("(?i)A\\s*R\\s*\\$\\s*", "ARS");
+    }
+
+    private static double parseLocaleNumber(String raw) {
+        if (raw == null) return -1.0;
+        String s = raw.trim().replace(" ", "")
+                .replace('I', '1').replace('i', '1').replace('l', '1')
+                .replace('|', '1').replace('O', '0').replace('o', '0');
+        try {
+            int lastComma = s.lastIndexOf(',');
+            int lastDot = s.lastIndexOf('.');
+            if (lastComma >= 0 && lastDot >= 0) {
+                if (lastComma > lastDot) s = s.replace(".", "").replace(',', '.');
+                else s = s.replace(",", "");
+            } else if (lastComma >= 0) {
+                int digitsAfter = s.length() - lastComma - 1;
+                s = digitsAfter <= 2 ? s.replace(',', '.') : s.replace(",", "");
+            } else if (lastDot >= 0) {
+                int digitsAfter = s.length() - lastDot - 1;
+                if (digitsAfter == 3 && s.length() > 4) s = s.replace(".", "");
+            }
+            return Double.parseDouble(s);
+        } catch (Exception ignored) {
+            return -1.0;
+        }
+    }
+
+    private String money(double value) {
+        NumberFormat nf = NumberFormat.getNumberInstance(new Locale("es", "AR"));
+        nf.setMaximumFractionDigits(0);
+        return "$" + nf.format(value);
     }
 
     private void sendText(String text) {
@@ -259,7 +412,7 @@ public class OcrCaptureService extends Service {
                 : new Notification.Builder(this);
         return builder
                 .setContentTitle("Driver Control: OCR activo")
-                .setContentText("Lectura visual local de ofertas")
+                .setContentText("Lectura visual local de ofertas y cobros")
                 .setSmallIcon(android.R.drawable.ic_menu_camera)
                 .setOngoing(true)
                 .addAction(android.R.drawable.ic_delete, "Detener", stop)

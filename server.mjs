@@ -3,13 +3,17 @@ import OpenAI from "openai";
 
 const port = Number(process.env.PORT || 8080);
 const openAiKey = process.env.OPENAI_API_KEY;
+const geminiKey = process.env.GEMINI_API_KEY;
 const appToken = process.env.DRIVER_CONTROL_APP_TOKEN;
-const model = process.env.OPENAI_MODEL || "gpt-6-astra";
+const openAiModel = process.env.OPENAI_MODEL || "gpt-6-astra";
+const geminiModel = process.env.GEMINI_MODEL || "gemini-3.5-flash-lite";
 
-if (!openAiKey) throw new Error("OPENAI_API_KEY is required");
+if (!openAiKey && !geminiKey) {
+  throw new Error("GEMINI_API_KEY or OPENAI_API_KEY is required");
+}
 if (!appToken) throw new Error("DRIVER_CONTROL_APP_TOKEN is required");
 
-const client = new OpenAI({ apiKey: openAiKey });
+const openAiClient = openAiKey ? new OpenAI({ apiKey: openAiKey }) : null;
 const requestWindows = new Map();
 const rateWindowMs = 10 * 60 * 1000;
 const rateLimit = 30;
@@ -31,6 +35,62 @@ const decisionSchema = {
   },
   required: ["verdict", "score", "answer", "reasons", "fatigue_advice"]
 };
+
+const assistantInstructions = [
+  "Sos el copiloto de seguridad y rentabilidad de Driver Control para un conductor humano.",
+  "Respondé en español rioplatense, con frases breves y accionables.",
+  "Evaluá tarifa, tiempo, kilómetros, combustible, objetivos, decisiones recientes y fatiga.",
+  "La seguridad tiene prioridad: si la fatiga es alta, recomendá detenerse aunque el viaje sea rentable.",
+  "Nunca afirmes que aceptaste o rechazaste el viaje. La decisión final siempre pertenece al conductor.",
+  "No distraigas al conductor ni sugieras manipular el teléfono con el vehículo en movimiento."
+].join(" ");
+
+async function analyzeWithGemini(payload) {
+  const endpoint =
+    `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(geminiModel)}:generateContent`;
+  const geminiResponse = await fetch(endpoint, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-goog-api-key": geminiKey
+    },
+    body: JSON.stringify({
+      systemInstruction: { parts: [{ text: assistantInstructions }] },
+      contents: [{ role: "user", parts: [{ text: JSON.stringify(payload) }] }],
+      generationConfig: {
+        responseMimeType: "application/json",
+        responseJsonSchema: decisionSchema
+      }
+    })
+  });
+
+  if (!geminiResponse.ok) {
+    const detail = (await geminiResponse.text()).slice(0, 1500);
+    throw new Error(`gemini_${geminiResponse.status}: ${detail}`);
+  }
+  const data = await geminiResponse.json();
+  const text = data?.candidates?.[0]?.content?.parts?.find(part => part.text)?.text;
+  if (!text) throw new Error("gemini_empty_response");
+  return JSON.parse(text);
+}
+
+async function analyzeWithOpenAI(payload) {
+  const result = await openAiClient.responses.create({
+    model: openAiModel,
+    store: false,
+    instructions: assistantInstructions,
+    input: JSON.stringify(payload),
+    text: {
+      format: {
+        type: "json_schema",
+        name: "driver_trip_decision",
+        strict: true,
+        schema: decisionSchema
+      }
+    }
+  });
+  return JSON.parse(result.output_text);
+}
 
 function sendJson(response, status, body) {
   response.writeHead(status, {
@@ -97,29 +157,9 @@ const server = http.createServer(async (request, response) => {
 
   try {
     const payload = validatePayload(await readJson(request));
-    const result = await client.responses.create({
-      model,
-      store: false,
-      instructions: [
-        "Sos el copiloto de seguridad y rentabilidad de Driver Control para un conductor humano.",
-        "Respondé en español rioplatense, con frases breves y accionables.",
-        "Evaluá tarifa, tiempo, kilómetros, combustible, objetivos, decisiones recientes y fatiga.",
-        "La seguridad tiene prioridad: si la fatiga es alta, recomendá detenerse aunque el viaje sea rentable.",
-        "Nunca afirmes que aceptaste o rechazaste el viaje. La decisión final siempre pertenece al conductor.",
-        "No distraigas al conductor ni sugieras manipular el teléfono con el vehículo en movimiento."
-      ].join(" "),
-      input: JSON.stringify(payload),
-      text: {
-        format: {
-          type: "json_schema",
-          name: "driver_trip_decision",
-          strict: true,
-          schema: decisionSchema
-        }
-      }
-    });
-
-    const parsed = JSON.parse(result.output_text);
+    const parsed = geminiKey
+      ? await analyzeWithGemini(payload)
+      : await analyzeWithOpenAI(payload);
     return sendJson(response, 200, parsed);
   } catch (error) {
     console.error("driver_analysis_failed", error);

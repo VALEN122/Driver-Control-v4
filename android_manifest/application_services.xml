@@ -14,8 +14,3 @@
 <service
     android:name="org.drivercontrol.drivercontrol.DriverOverlayService"
     android:exported="false" />
-
-<service
-    android:name="org.drivercontrol.drivercontrol.OcrCaptureService"
-    android:exported="false"
-    android:foregroundServiceType="mediaProjection" />

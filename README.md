@@ -1,4 +1,4 @@
-# Driver Control 5.0 — Fusionado con UberFilter OCR
+# Driver Control 5.5 — Copiloto local unificado
 
 Base estable 4.3.3 + Asistente de viajes.
 
@@ -9,19 +9,23 @@ Driver Control calcula costo de combustible, neto estimado, $/hora, $/km y un pu
 ## 4.5 — Asistente flotante sobre Uber
 La versión 4.5 incorpora un servicio Android opcional que analiza localmente los datos numéricos visibles en ofertas de Uber Driver y muestra un resultado flotante. Requiere activación manual del servicio de accesibilidad y no realiza acciones automáticas sobre Uber.
 
-## 5.0 — OCR real
+## 5.5 — Visor de IA local
 
-Integra el lector visual de UberFilter 0.10 dentro de Driver Control. Conserva
-Dashboard, viajes, caja, jornadas, gastos y combustible. Cuando Accesibilidad no
-expone la tarjeta de Uber, el conductor puede activar **LECTURA VISUAL OCR** y
-autorizar **Toda la pantalla**. ML Kit procesa localmente el sector inferior,
-no guarda capturas y corrige confusiones como `ARS8,9I6` → `$8.916`.
+Driver Control usa una sola ruta de lectura. Accesibilidad detecta los cambios de
+Uber y `DriverCopilotCoordinator` procesa con ML Kit en un hilo nativo secundario.
+No existe un segundo OCR compitiendo por CPU o memoria. El visor clasifica ofertas,
+cobros finales y pantallas irrelevantes; nunca guarda ni transmite capturas.
 
 ### Activación correcta
 
-1. Tocá **ACTIVAR FLOTANTE SOBRE UBER** y habilitá Driver Control en Accesibilidad.
-2. Volvé a Driver Control y tocá **ACTIVAR LECTURA VISUAL OCR**.
-3. Elegí **Toda la pantalla** en el permiso de Android y abrí Uber Driver.
+1. Tocá **ACTIVAR ASISTENTE + VUELTO** y permití mostrar sobre otras apps.
+2. Tocá **LECTURA VISUAL AUTOMÁTICA** y habilitá Driver Control en Accesibilidad.
+3. Abrí Uber Driver. No hace falta habilitar una segunda captura de pantalla.
 
-Ambos permisos son necesarios: Accesibilidad muestra la burbuja y OCR lee la
-tarjeta cuando Uber no expone sus números como texto accesible.
+## 5.6 — Bienestar y mapa
+
+El apartado **Bienestar y mapa** registra pausas y muestra tiempo efectivo de
+jornada. El conductor puede informar cómo se siente y el analizador ajusta el
+veredicto: una oferta rentable puede pasar a dudosa o no conveniente si existe
+fatiga alta o una pausa activa. Los accesos a estaciones y áreas de descanso
+abren el mapa instalado y, durante una jornada, exigen iniciar antes una pausa.

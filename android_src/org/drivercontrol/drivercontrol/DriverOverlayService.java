@@ -15,6 +15,9 @@ import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
 import android.os.SystemClock;
+import android.os.VibrationEffect;
+import android.os.Vibrator;
+import android.os.VibratorManager;
 import android.provider.Settings;
 import android.text.Editable;
 import android.text.InputType;
@@ -48,10 +51,12 @@ public class DriverOverlayService extends Service {
     public static final String ACTION_STOP = "org.drivercontrol.drivercontrol.OVERLAY_STOP";
     public static final String ACTION_SOURCE_TEXT = "org.drivercontrol.drivercontrol.SOURCE_TEXT";
     public static final String ACTION_READER_STATUS = "org.drivercontrol.drivercontrol.READER_STATUS";
+    public static final String ACTION_CASH_FARE = "org.drivercontrol.drivercontrol.CASH_FARE";
 
     public static final String EXTRA_SOURCE_TEXT = "source_text";
     public static final String EXTRA_SOURCE_KIND = "source_kind";
     public static final String EXTRA_READER_STATUS = "reader_status";
+    public static final String EXTRA_CASH_FARE = "cash_fare";
 
     private static final String CHANNEL = "driver_control_overlay";
     private static final int NOTIFICATION_ID = 61;
@@ -123,6 +128,9 @@ public class DriverOverlayService extends Service {
                         intent.getStringExtra(EXTRA_SOURCE_TEXT),
                         safeSourceKind(intent.getStringExtra(EXTRA_SOURCE_KIND))
                 );
+            } else if (ACTION_CASH_FARE.equals(action)) {
+                double fare = intent.getDoubleExtra(EXTRA_CASH_FARE, 0.0);
+                if (fare > 0.0) handleDetectedCashFare(fare);
             } else if (ACTION_READER_STATUS.equals(action)) {
                 String message = intent.getStringExtra(EXTRA_READER_STATUS);
                 if (message != null && !message.trim().isEmpty()) {
@@ -170,10 +178,11 @@ public class DriverOverlayService extends Service {
         if (!signature.equals(lastSignature) || tripOverlay == null) {
             lastSignature = signature;
             showOrUpdateTripOverlay(analysis);
+            vibrateOffer(analysis);
         } else {
             showOrUpdateTripOverlay(analysis);
         }
-        showTransientStatus(sourceKind + " · oferta leída", false);
+        // El propio borde del veredicto confirma la lectura; no se superpone un chip.
     }
 
     private void updateReaderStatus(String status, String excerpt) {
@@ -217,16 +226,18 @@ public class DriverOverlayService extends Service {
         if (tripOverlay == null) createTripOverlay();
         if (tripOverlay == null) return;
 
-        verdictView.setText(a.verdict + "  " + Math.round(a.score) + "/100");
+        verdictView.setText(a.verdict);
         verdictView.setTextColor(a.accentColor);
-        headlineView.setText(
+        tripOverlay.setBackground(rounded(
+                Color.argb(248, 13, 17, 23),
+                18,
+                a.accentColor
+        ));
+        headlineView.setText(money(a.hourly) + "/h  ·  " + money(a.perKm) + "/km");
+        metricsView.setText(
                 money(a.offer.fare) + " · " + fmt1(a.offer.pickupKm + a.offer.tripKm)
                         + " km · " + Math.round(a.offer.pickupMin + a.offer.tripMin) + " min"
-        );
-        metricsView.setText(
-                money(a.hourly) + "/h  ·  " + money(a.perKm) + "/km\n"
-                        + "Buscar " + fmt1(a.offer.pickupKm) + " km / " + Math.round(a.offer.pickupMin) + " min"
-                        + "  ·  Nafta " + money(a.fuelCost) + "  ·  Neto " + money(a.net)
+                        + "\nGanancia limpia estimada " + money(a.net)
         );
 
         if (tripOverlay.getParent() == null) {
@@ -249,8 +260,10 @@ public class DriverOverlayService extends Service {
         ));
         box.setElevation(dp(8));
 
-        verdictView = textView(17, true, Color.WHITE);
-        headlineView = textView(14, true, Color.WHITE);
+        verdictView = textView(28, true, Color.WHITE);
+        verdictView.setGravity(Gravity.CENTER);
+        headlineView = textView(20, true, Color.WHITE);
+        headlineView.setGravity(Gravity.CENTER);
         metricsView = textView(12, false, Color.rgb(210, 220, 230));
         box.addView(verdictView);
         box.addView(headlineView);
@@ -440,6 +453,7 @@ public class DriverOverlayService extends Service {
             double value = v == q1 ? quickValues[0] : (v == q2 ? quickValues[1] : quickValues[2]);
             received.setText(plainNumber(value));
             received.setSelection(received.getText().length());
+            vibratePattern(new long[]{0, 55, 55, 55});
         };
         q1.setOnClickListener(quickListener);
         q2.setOnClickListener(quickListener);
@@ -493,16 +507,69 @@ public class DriverOverlayService extends Service {
         changePanel = panel;
         try {
             windowManager.addView(changePanel, changePanelLayoutParams());
-            EditText target = lastFare <= 0 ? fare : received;
-            target.requestFocus();
-            target.postDelayed(() -> {
-                InputMethodManager imm = (InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
-                if (imm != null) imm.showSoftInput(target, InputMethodManager.SHOW_IMPLICIT);
-            }, 180L);
+            // Con una tarifa leída por OCR se priorizan los botones grandes y no se
+            // abre el teclado sobre Uber. El teclado queda disponible tocando el campo.
+            if (lastFare <= 0) {
+                fare.requestFocus();
+                fare.postDelayed(() -> {
+                    InputMethodManager imm = (InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
+                    if (imm != null) imm.showSoftInput(fare, InputMethodManager.SHOW_IMPLICIT);
+                }, 180L);
+            } else {
+                panel.setFocusableInTouchMode(true);
+                panel.requestFocus();
+            }
         } catch (Throwable ignored) {
             changePanel = null;
             showChangeBubble();
         }
+    }
+
+    /** Abre el vuelto únicamente cuando OCR identifica una pantalla final de cobro. */
+    private void handleDetectedCashFare(double fare) {
+        getSharedPreferences("driver_control_overlay", MODE_PRIVATE)
+                .edit()
+                .putFloat("last_offer_fare", (float) fare)
+                .putFloat("last_cash_fare", (float) fare)
+                .apply();
+        hideTripOverlay();
+        closeChangePanelWithoutBubble();
+        vibratePattern(new long[]{0, 90, 80, 90});
+        showChangePanel();
+    }
+
+    private void closeChangePanelWithoutBubble() {
+        if (changePanel != null && windowManager != null && changePanel.getParent() != null) {
+            try { windowManager.removeView(changePanel); } catch (Throwable ignored) {}
+        }
+        changePanel = null;
+        removeChangeBubble();
+    }
+
+    private void vibrateOffer(Analysis analysis) {
+        // Una confirmación clara para viaje viable; pulso distinto para descartarlo.
+        if ("CONVIENE".equals(analysis.verdict)) vibratePattern(new long[]{0, 140});
+        else if ("NO CONVIENE".equals(analysis.verdict)) vibratePattern(new long[]{0, 70, 70, 70});
+        else vibratePattern(new long[]{0, 90});
+    }
+
+    private void vibratePattern(long[] pattern) {
+        try {
+            Vibrator vibrator;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                VibratorManager manager = (VibratorManager) getSystemService(VIBRATOR_MANAGER_SERVICE);
+                vibrator = manager == null ? null : manager.getDefaultVibrator();
+            } else {
+                vibrator = (Vibrator) getSystemService(VIBRATOR_SERVICE);
+            }
+            if (vibrator == null || !vibrator.hasVibrator()) return;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                vibrator.vibrate(VibrationEffect.createWaveform(pattern, -1));
+            } else {
+                //noinspection deprecation
+                vibrator.vibrate(pattern, -1);
+            }
+        } catch (Throwable ignored) {}
     }
 
     private WindowManager.LayoutParams changePanelLayoutParams() {
@@ -590,45 +657,23 @@ public class DriverOverlayService extends Service {
     }
 
     private Analysis analyze(OfferParser.Offer offer) {
-        SharedPreferences p = getSharedPreferences("driver_control_overlay", MODE_PRIVATE);
-        double consumption = p.getFloat("fuel_consumption", 8.0f);
-        double fuelPrice = p.getFloat("fuel_price", 2048.0f);
-        double minHourly = p.getFloat("min_hourly", 15000.0f);
-        double minPerKm = p.getFloat("min_per_km", 300.0f);
-        double maxPickupKm = p.getFloat("max_pickup_km", 3.0f);
-
-        double totalMin = Math.max(0.1, offer.pickupMin + offer.tripMin);
-        double totalKm = Math.max(0.1, offer.pickupKm + offer.tripKm);
-        double liters = totalKm * consumption / 100.0;
-        double fuelCost = liters * fuelPrice;
-        double net = offer.fare - fuelCost;
-        double hourly = net / totalMin * 60.0;
-        double perKm = net / totalKm;
-
-        double score = 50.0;
-        score += clamp((hourly / Math.max(1.0, minHourly) - 1.0) * 35.0, -25, 25);
-        score += clamp((perKm / Math.max(1.0, minPerKm) - 1.0) * 30.0, -20, 20);
-        score += offer.pickupKm <= maxPickupKm
-                ? 10
-                : -Math.min(20, (offer.pickupKm - maxPickupKm) * 5);
-        score = clamp(score, 0, 100);
-
+        TripProfitabilityAnalyzer.Result result = TripProfitabilityAnalyzer.analyze(
+                this, offer.fare, offer.pickupMin, offer.pickupKm, offer.tripMin, offer.tripKm);
         String verdict;
         int accent;
-        if (perKm < minPerKm) {
-            verdict = "NO CONVIENE";
-            accent = Color.rgb(225, 65, 75);
-        } else if (score >= 75) {
+        if (result.verdict == TripProfitabilityAnalyzer.Verdict.ACCEPT) {
             verdict = "CONVIENE";
             accent = Color.rgb(26, 190, 109);
-        } else if (score >= 55) {
+        } else if (result.verdict == TripProfitabilityAnalyzer.Verdict.REVIEW) {
             verdict = "DUDOSO";
             accent = Color.rgb(230, 170, 35);
         } else {
             verdict = "NO CONVIENE";
             accent = Color.rgb(225, 65, 75);
         }
-        return new Analysis(offer, liters, fuelCost, net, hourly, perKm, score, verdict, accent);
+        return new Analysis(
+                offer, result.liters, result.fuelCost, result.netProfit,
+                result.perHour, result.perKm, result.score, verdict, accent);
     }
 
     private static double parseInput(String raw) {

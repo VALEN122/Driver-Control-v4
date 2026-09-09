@@ -325,7 +325,14 @@ public class OcrCaptureService extends Service {
                 .apply();
 
         startOverlayIfAllowed();
-        sendStatus("OCR · cobro detectado " + money(fare) + " · tocá $ para vuelto");
+        try {
+            Intent intent = new Intent(this, DriverOverlayService.class)
+                    .setAction(DriverOverlayService.ACTION_CASH_FARE)
+                    .putExtra(DriverOverlayService.EXTRA_CASH_FARE, fare);
+            startOverlayService(intent);
+        } catch (Throwable ignored) {
+            sendStatus("OCR · cobro detectado " + money(fare));
+        }
     }
 
     /** Normaliza AR$ para que el parser de ofertas también pueda leerlo como ARS. */

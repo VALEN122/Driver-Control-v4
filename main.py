@@ -31,7 +31,7 @@ from kivymd.uix.textfield import MDTextField
 # ============================================================
 
 APP_NAME = "Driver Control"
-APP_VERSION = "5.3.0"
+APP_VERSION = "5.6.0"
 DB_FILE = "driver_control.db"
 DATE_FORMAT = "%d/%m/%Y"
 DATETIME_FORMAT = "%d/%m/%Y %H:%M"
@@ -84,6 +84,7 @@ ScreenManager:
     CashScreen:
     SessionsScreen:
     TripAssistantScreen:
+    WellnessMapScreen:
     SettingsScreen:
 
 <DashboardScreen>:
@@ -172,7 +173,7 @@ ScreenManager:
 
                     StatCard:
                         MDLabel:
-                            text: "GANANCIA NETA"
+                            text: "GANANCIA LIMPIA DISPONIBLE"
                             theme_text_color: "Custom"
                             text_color: app.muted_color
                             font_style: "Caption"
@@ -334,6 +335,13 @@ ScreenManager:
                     size_hint_y: None
                     height: dp(48)
                     on_release: app.go("sessions")
+
+                MDRaisedButton:
+                    text: "Bienestar y mapa"
+                    size_hint_y: None
+                    height: dp(52)
+                    md_bg_color: app.accent_color
+                    on_release: app.go("wellness_map")
 
         MDBoxLayout:
             size_hint_y: None
@@ -865,7 +873,7 @@ ScreenManager:
                     radius: [18,18,18,18]
                     md_bg_color: app.card_color
                     size_hint_y: None
-                    height: dp(430)
+                    height: dp(326)
 
                     MDLabel:
                         text: "Flotante sobre Uber"
@@ -875,7 +883,7 @@ ScreenManager:
                         height: dp(34)
 
                     MDLabel:
-                        text: "El flotante y el vuelto son independientes. Usá Accesibilidad para lectura rápida u OCR si Uber no expone texto. Mantené pulsada la burbuja $ para diagnóstico."
+                        text: "Un único visor local lee ofertas y cobros mediante Accesibilidad + ML Kit. Mantené pulsada la burbuja $ para ver el diagnóstico."
                         theme_text_color: "Custom"
                         text_color: app.muted_color
                         font_style: "Caption"
@@ -893,18 +901,6 @@ ScreenManager:
                         size_hint_y: None
                         height: dp(50)
                         on_release: app.request_uber_accessibility()
-
-                    MDRaisedButton:
-                        text: "ACTIVAR OCR (RESPALDO)"
-                        size_hint_y: None
-                        height: dp(50)
-                        on_release: app.request_uber_ocr()
-
-                    MDFlatButton:
-                        text: "DETENER OCR"
-                        size_hint_y: None
-                        height: dp(44)
-                        on_release: app.stop_uber_ocr()
 
                     MDFlatButton:
                         text: "DETENER FLOTANTE"
@@ -1026,6 +1022,115 @@ ScreenManager:
                     size_hint_y: None
                     height: dp(28)
 
+
+<WellnessMapScreen>:
+    name: "wellness_map"
+    MDBoxLayout:
+        orientation: "vertical"
+        md_bg_color: app.bg_color
+
+        MDTopAppBar:
+            title: "Bienestar y mapa"
+            left_action_items: [["arrow-left", lambda x: app.go("dashboard")]]
+            md_bg_color: app.bg_color
+
+        ScrollView:
+            MDBoxLayout:
+                orientation: "vertical"
+                padding: dp(16)
+                spacing: dp(14)
+                adaptive_height: True
+
+                MDCard:
+                    orientation: "vertical"
+                    padding: dp(16)
+                    spacing: dp(7)
+                    radius: [18,18,18,18]
+                    md_bg_color: app.card_color
+                    size_hint_y: None
+                    height: dp(190)
+
+                    MDLabel:
+                        text: root.fatigue_title
+                        font_style: "H5"
+                        bold: True
+                    MDLabel:
+                        text: root.fatigue_message
+                        theme_text_color: "Custom"
+                        text_color: root.fatigue_color
+                    MDLabel:
+                        text: root.work_time_text
+                        bold: True
+                    MDLabel:
+                        text: root.break_time_text
+                        theme_text_color: "Custom"
+                        text_color: app.muted_color
+
+                MDRaisedButton:
+                    text: root.break_action_text
+                    size_hint_y: None
+                    height: dp(58)
+                    md_bg_color: root.break_action_color
+                    on_release: app.toggle_break()
+
+                MDLabel:
+                    text: "¿Cómo te sentís ahora?"
+                    font_style: "H6"
+                    bold: True
+                    size_hint_y: None
+                    height: dp(34)
+
+                MDGridLayout:
+                    cols: 3
+                    spacing: dp(8)
+                    adaptive_height: True
+                    MDRaisedButton:
+                        text: "Bien"
+                        height: dp(52)
+                        on_release: app.record_fatigue(1)
+                    MDRaisedButton:
+                        text: "Cansado"
+                        height: dp(52)
+                        on_release: app.record_fatigue(3)
+                    MDRaisedButton:
+                        text: "Muy cansado"
+                        height: dp(52)
+                        md_bg_color: (0.85, 0.35, 0.2, 1)
+                        on_release: app.record_fatigue(5)
+
+                MDCard:
+                    orientation: "vertical"
+                    padding: dp(16)
+                    spacing: dp(10)
+                    radius: [18,18,18,18]
+                    md_bg_color: app.card_color
+                    size_hint_y: None
+                    height: dp(236)
+
+                    MDLabel:
+                        text: "Mapa rápido"
+                        font_style: "H6"
+                        bold: True
+                    MDLabel:
+                        text: "Abrí el mapa instalado sin cargar un motor pesado dentro de Driver Control. Usalo solamente con el vehículo detenido."
+                        theme_text_color: "Custom"
+                        text_color: app.muted_color
+                    MDRaisedButton:
+                        text: "ESTACIONES DE SERVICIO CERCANAS"
+                        size_hint_y: None
+                        height: dp(54)
+                        on_release: app.open_map("estaciones de servicio cercanas")
+                    MDRaisedButton:
+                        text: "ÁREA DE DESCANSO CERCANA"
+                        size_hint_y: None
+                        height: dp(54)
+                        on_release: app.open_map("área de descanso cercana")
+
+                MDFlatButton:
+                    text: "Configuración y objetivos"
+                    size_hint_y: None
+                    height: dp(48)
+                    on_release: app.go("settings")
 
 <SettingsScreen>:
     name: "settings"
@@ -1192,6 +1297,16 @@ class TripAssistantScreen(Screen):
     recommendation_color = ListProperty([0.10, 0.55, 0.25, 1])
 
 
+class WellnessMapScreen(Screen):
+    fatigue_title = StringProperty("Sin jornada activa")
+    fatigue_message = StringProperty("Abrí una jornada para activar el acompañamiento.")
+    fatigue_color = ListProperty([0.34, 0.40, 0.46, 1])
+    work_time_text = StringProperty("Tiempo efectivo: 00:00 h")
+    break_time_text = StringProperty("Pausas: 00:00 h")
+    break_action_text = StringProperty("INICIAR PAUSA")
+    break_action_color = ListProperty([0.00, 0.62, 0.86, 1])
+
+
 
 class SettingsScreen(Screen):
     pass
@@ -1226,6 +1341,9 @@ class DriverControlApp(MDApp):
     def on_start(self):
         try:
             self._clock_event = Clock.schedule_interval(self._tick_clock, 1)
+            self._wellness_event = Clock.schedule_interval(
+                lambda _dt: self.refresh_wellness(), 60
+            )
             self._tick_clock(0)
             self.refresh_all()
             self._sync_android_assistant_settings()
@@ -1238,6 +1356,9 @@ class DriverControlApp(MDApp):
         event = getattr(self, "_clock_event", None)
         if event is not None:
             event.cancel()
+        wellness_event = getattr(self, "_wellness_event", None)
+        if wellness_event is not None:
+            wellness_event.cancel()
         if getattr(self, "conn", None) is not None:
             try:
                 self.conn.commit()
@@ -1319,6 +1440,28 @@ class DriverControlApp(MDApp):
                 )
                 """
             )
+            self.conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS driver_breaks(
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    session_id INTEGER NOT NULL,
+                    started_at TEXT NOT NULL,
+                    ended_at TEXT,
+                    FOREIGN KEY(session_id) REFERENCES work_sessions(id)
+                )
+                """
+            )
+            self.conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS fatigue_checkins(
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    session_id INTEGER NOT NULL,
+                    created_at TEXT NOT NULL,
+                    level INTEGER NOT NULL CHECK(level BETWEEN 1 AND 5),
+                    FOREIGN KEY(session_id) REFERENCES work_sessions(id)
+                )
+                """
+            )
 
             self._ensure_column("trips", "cash_received", "REAL")
             self._ensure_column("trips", "change_given", "REAL")
@@ -1336,6 +1479,12 @@ class DriverControlApp(MDApp):
             )
             self.conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_fuel_created_at ON fuel(created_at)"
+            )
+            self.conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_breaks_session ON driver_breaks(session_id)"
+            )
+            self.conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_fatigue_session ON fatigue_checkins(session_id)"
             )
 
             self.conn.execute(
@@ -1421,6 +1570,165 @@ class DriverControlApp(MDApp):
             return
         self.root.current = name
         self.refresh_all()
+
+    @staticmethod
+    def _duration_text(seconds: float) -> str:
+        total_minutes = max(0, int(seconds // 60))
+        hours, minutes = divmod(total_minutes, 60)
+        return f"{hours:02d}:{minutes:02d} h"
+
+    def _active_break(self, session_id: int):
+        return self.conn.execute(
+            """
+            SELECT * FROM driver_breaks
+            WHERE session_id=? AND ended_at IS NULL
+            ORDER BY id DESC LIMIT 1
+            """,
+            (session_id,),
+        ).fetchone()
+
+    def toggle_break(self):
+        try:
+            session_id = self._require_active_session()
+            active = self._active_break(session_id)
+            now = datetime.now().strftime(DATETIME_FORMAT)
+            with self.transaction():
+                if active is None:
+                    self.conn.execute(
+                        "INSERT INTO driver_breaks(session_id,started_at) VALUES(?,?)",
+                        (session_id, now),
+                    )
+                    message = "Pausa iniciada. Descansá, hidratate y evitá mirar pedidos."
+                else:
+                    self.conn.execute(
+                        "UPDATE driver_breaks SET ended_at=? WHERE id=?",
+                        (now, int(active["id"])),
+                    )
+                    message = "Pausa finalizada. Retomá solamente si te sentís en condiciones."
+            self.refresh_wellness()
+            self.show_message("Bienestar", message)
+        except ValidationError as exc:
+            self.show_message("Bienestar", str(exc))
+        except Exception:
+            LOGGER.exception("Could not toggle driver break")
+            self.show_message("Bienestar", "No se pudo registrar la pausa.")
+
+    def record_fatigue(self, level: int):
+        try:
+            session_id = self._require_active_session()
+            level = max(1, min(5, int(level)))
+            with self.transaction():
+                self.conn.execute(
+                    "INSERT INTO fatigue_checkins(session_id,created_at,level) VALUES(?,?,?)",
+                    (session_id, datetime.now().strftime(DATETIME_FORMAT), level),
+                )
+            self.refresh_wellness()
+            if level >= 5:
+                self.show_message(
+                    "Detenete en un lugar seguro",
+                    "Marcaste fatiga alta. Driver Control recomienda terminar o hacer una pausa prolongada.",
+                )
+            elif level >= 3:
+                self.show_message("Hacé una pausa", "Un descanso corto puede reducir errores y tensión.")
+            else:
+                self.show_message("Estado registrado", "Seguiremos teniendo en cuenta tu tiempo de jornada.")
+        except ValidationError as exc:
+            self.show_message("Bienestar", str(exc))
+        except Exception:
+            LOGGER.exception("Could not save fatigue check-in")
+            self.show_message("Bienestar", "No se pudo guardar tu estado.")
+
+    def open_map(self, query: str):
+        if platform != "android":
+            self.show_message("Mapa", "Esta acción abre la aplicación de mapas en Android.")
+            return
+        try:
+            session = self._active_session()
+            if session is not None and self._active_break(int(session["id"])) is None:
+                self.show_message(
+                    "Primero detenete",
+                    "Iniciá una pausa antes de abrir el mapa. Usalo con el vehículo detenido.",
+                )
+                return
+            from jnius import autoclass
+            Intent = autoclass("android.content.Intent")
+            Uri = autoclass("android.net.Uri")
+            PythonActivity = autoclass("org.kivy.android.PythonActivity")
+            URLEncoder = autoclass("java.net.URLEncoder")
+            current = PythonActivity.mActivity
+            encoded = URLEncoder.encode(query, "UTF-8")
+            intent = Intent(Intent.ACTION_VIEW, Uri.parse("geo:0,0?q=" + encoded))
+            current.startActivity(intent)
+        except Exception:
+            LOGGER.exception("Could not open map")
+            self.show_message("Mapa", "No encontré una aplicación de mapas instalada.")
+
+    def refresh_wellness(self):
+        if not getattr(self, "root", None):
+            return
+        screen = self.root.get_screen("wellness_map")
+        session = self._active_session()
+        if session is None:
+            screen.fatigue_title = "Sin jornada activa"
+            screen.fatigue_message = "Abrí una jornada para activar pausas y seguimiento."
+            screen.fatigue_color = self.muted_color
+            screen.work_time_text = "Tiempo efectivo: 00:00 h"
+            screen.break_time_text = "Pausas: 00:00 h"
+            screen.break_action_text = "INICIAR PAUSA"
+            self._sync_android_wellness_state(0, False)
+            return
+
+        session_id = int(session["id"])
+        now = datetime.now()
+        opened = datetime.strptime(session["opened_at"], DATETIME_FORMAT)
+        rows = self.conn.execute(
+            "SELECT started_at,ended_at FROM driver_breaks WHERE session_id=?",
+            (session_id,),
+        ).fetchall()
+        break_seconds = 0.0
+        last_effective_resume = opened
+        active_break = None
+        for row in rows:
+            started = datetime.strptime(row["started_at"], DATETIME_FORMAT)
+            ended = datetime.strptime(row["ended_at"], DATETIME_FORMAT) if row["ended_at"] else now
+            break_seconds += max(0.0, (ended - started).total_seconds())
+            if row["ended_at"]:
+                last_effective_resume = max(last_effective_resume, ended)
+            else:
+                active_break = row
+
+        elapsed = max(0.0, (now - opened).total_seconds())
+        effective = max(0.0, elapsed - break_seconds)
+        continuous = 0.0 if active_break else max(0.0, (now - last_effective_resume).total_seconds())
+        checkin = self.conn.execute(
+            "SELECT level FROM fatigue_checkins WHERE session_id=? ORDER BY id DESC LIMIT 1",
+            (session_id,),
+        ).fetchone()
+        reported = int(checkin["level"]) if checkin else 1
+
+        if reported >= 5 or effective >= 6 * 3600:
+            risk = 2
+            screen.fatigue_title = "Prioridad: detenerse"
+            screen.fatigue_message = "La fatiga puede volver insegura una oferta aunque sea rentable."
+            screen.fatigue_color = [0.85, 0.25, 0.20, 1]
+        elif reported >= 3 or continuous >= 2 * 3600 or effective >= 4 * 3600:
+            risk = 1
+            screen.fatigue_title = "Pausa recomendada"
+            screen.fatigue_message = "Buscá un lugar seguro antes de continuar."
+            screen.fatigue_color = [0.88, 0.55, 0.10, 1]
+        else:
+            risk = 0
+            screen.fatigue_title = "Ritmo saludable"
+            screen.fatigue_message = "La jornada sigue dentro de los límites configurados."
+            screen.fatigue_color = [0.10, 0.60, 0.32, 1]
+
+        screen.work_time_text = f"Tiempo efectivo: {self._duration_text(effective)}"
+        screen.break_time_text = f"Pausas acumuladas: {self._duration_text(break_seconds)}"
+        screen.break_action_text = "FINALIZAR PAUSA" if active_break else "INICIAR PAUSA"
+        screen.break_action_color = (
+            [0.12, 0.62, 0.34, 1] if active_break else [0.00, 0.62, 0.86, 1]
+        )
+        self._sync_android_wellness_state(risk, active_break is not None)
 
     def setting(self, key: str, default: str = "") -> str:
         row = self.conn.execute(
@@ -1654,6 +1962,10 @@ class DriverControlApp(MDApp):
             now = datetime.now().strftime(DATETIME_FORMAT)
             with self.transaction():
                 self.conn.execute(
+                    "UPDATE driver_breaks SET ended_at=? WHERE session_id=? AND ended_at IS NULL",
+                    (now, int(session["id"])),
+                )
+                self.conn.execute(
                     """
                     UPDATE work_sessions
                     SET closed_at=?, closing_odometer=?, closing_cash=?,
@@ -1677,10 +1989,15 @@ class DriverControlApp(MDApp):
                     f"A reponer en nafta: {self.money(metrics['fuel_cost'])}",
                     f"Nafta cargada: {metrics['fuel_loaded_liters']:.2f} L · {self.money(metrics['fuel_loaded_amount'])}",
                     f"Otros gastos: {self.money(metrics['operating_expenses'])}",
-                    f"Ganancia neta: {self.money(metrics['net'])}",
+                    f"Ganancia limpia disponible: {self.money(metrics['net'])}",
                     f"Caja esperada: {self.money(metrics['cash_expected'])}",
                     f"Caja contada: {self.money(closing_cash)}",
-                    f"Diferencia de caja: {sign}{self.money(abs(difference))}",
+                    (
+                        f"Caja conciliada: +{self.money(abs(difference))}"
+                        if difference >= 0 else
+                        f"Revisemos la caja: faltan {self.money(abs(difference))}. "
+                        "¿Hubo algún gasto en efectivo no registrado?"
+                    ),
                 ]),
             )
         except ValidationError as exc:
@@ -1810,6 +2127,21 @@ class DriverControlApp(MDApp):
         except Exception:
             LOGGER.exception("Could not sync Android overlay settings")
 
+    def _sync_android_wellness_state(self, risk: int, paused: bool):
+        """Comparte solo el estado mínimo para ajustar el veredicto flotante."""
+        if platform != "android":
+            return
+        try:
+            from jnius import autoclass
+            PythonActivity = autoclass("org.kivy.android.PythonActivity")
+            activity = PythonActivity.mActivity
+            editor = activity.getSharedPreferences("driver_control_overlay", 0).edit()
+            editor.putInt("fatigue_risk", int(max(0, min(2, risk))))
+            editor.putBoolean("driver_paused", bool(paused))
+            editor.apply()
+        except Exception:
+            LOGGER.exception("Could not sync Android wellness state")
+
     def _start_driver_overlay_service(self) -> bool:
         if platform != "android":
             return False
@@ -1852,7 +2184,7 @@ class DriverControlApp(MDApp):
                     self.show_message(
                         "Flotante activo",
                         "Vas a ver una burbuja $ sobre Uber para calcular el vuelto. "
-                        "El análisis de viajes aparecerá arriba cuando Accesibilidad u OCR detecten una oferta.",
+                        "El análisis aparecerá cuando el visor local detecte una oferta.",
                     )
                 return
 
@@ -1907,7 +2239,7 @@ class DriverControlApp(MDApp):
         disclosure = (
             "Accesibilidad se usa solo para leer tarifa, minutos y kilómetros visibles en Uber. "
             "No pulsa botones ni acepta viajes. La lectura está limitada para cuidar el rendimiento. "
-            "Si Uber no expone texto accesible, activá OCR como respaldo. "
+            "El visor usa una única captura local cuando Uber no expone texto. "
             "Mantené pulsada la burbuja $ para ver el último diagnóstico del lector."
         )
         dialog = None
@@ -1943,84 +2275,6 @@ class DriverControlApp(MDApp):
             ],
         )
         dialog.open()
-
-    def request_uber_ocr(self):
-        """Solicita captura de pantalla de Android y arranca OCR local, sin depender de Accesibilidad."""
-        if platform != "android":
-            self.show_message("Solo Android", "La lectura visual funciona únicamente en Android.")
-            return
-        try:
-            from android import activity as android_activity
-            from jnius import autoclass
-            Context = autoclass("android.content.Context")
-            Settings = autoclass("android.provider.Settings")
-            PythonActivity = autoclass("org.kivy.android.PythonActivity")
-            current = PythonActivity.mActivity
-            if not Settings.canDrawOverlays(current):
-                self.show_message(
-                    "Primero activá el flotante",
-                    "Tocá ACTIVAR ASISTENTE + VUELTO y habilitá 'Mostrar sobre otras apps'.",
-                )
-                return
-            self._start_driver_overlay_service()
-            manager = current.getSystemService(Context.MEDIA_PROJECTION_SERVICE)
-            try:
-                android_activity.unbind(on_activity_result=self._on_ocr_activity_result)
-            except Exception:
-                pass
-            android_activity.bind(on_activity_result=self._on_ocr_activity_result)
-            current.startActivityForResult(manager.createScreenCaptureIntent(), 9401)
-        except Exception:
-            LOGGER.exception("Could not request OCR screen capture")
-            self.show_message("Lectura visual", "No se pudo abrir el permiso de captura.")
-
-    def stop_uber_ocr(self):
-        if platform != "android":
-            return
-        try:
-            from jnius import autoclass
-            Intent = autoclass("android.content.Intent")
-            PythonActivity = autoclass("org.kivy.android.PythonActivity")
-            OcrService = autoclass("org.drivercontrol.drivercontrol.OcrCaptureService")
-            current = PythonActivity.mActivity
-            intent = Intent(current, OcrService)
-            intent.setAction(OcrService.ACTION_STOP)
-            current.startService(intent)
-            self.show_message("OCR detenido", "La lectura visual se detuvo. El flotante y el vuelto siguen activos.")
-        except Exception:
-            LOGGER.exception("Could not stop OCR service")
-
-    def _on_ocr_activity_result(self, request_code, result_code, data):
-        if request_code != 9401:
-            return
-        try:
-            from android import activity as android_activity
-            android_activity.unbind(on_activity_result=self._on_ocr_activity_result)
-        except Exception:
-            pass
-        try:
-            from jnius import autoclass
-            Activity = autoclass("android.app.Activity")
-            if result_code != Activity.RESULT_OK or data is None:
-                self.show_message("Lectura visual", "Android no autorizó la captura.")
-                return
-            Intent = autoclass("android.content.Intent")
-            BuildVersion = autoclass("android.os.Build$VERSION")
-            PythonActivity = autoclass("org.kivy.android.PythonActivity")
-            OcrService = autoclass("org.drivercontrol.drivercontrol.OcrCaptureService")
-            current = PythonActivity.mActivity
-            service_intent = Intent(current, OcrService)
-            service_intent.setAction(OcrService.ACTION_START)
-            service_intent.putExtra(OcrService.EXTRA_RESULT_CODE, result_code)
-            service_intent.putExtra(OcrService.EXTRA_RESULT_DATA, data)
-            if BuildVersion.SDK_INT >= 26:
-                current.startForegroundService(service_intent)
-            else:
-                current.startService(service_intent)
-            self.show_message("Lectura visual activa", "Abrí Uber. Elegí compartir toda la pantalla.")
-        except Exception:
-            LOGGER.exception("Could not start OCR capture service")
-            self.show_message("Lectura visual", "No se pudo iniciar el lector OCR.")
 
     def analyze_trip_offer(self):
         screen = self.root.get_screen("assistant")
@@ -2219,6 +2473,7 @@ class DriverControlApp(MDApp):
         self._refresh_cash_summary(today)
         self.fill_lists()
         self.fill_sessions()
+        self.refresh_wellness()
 
         settings_screen = self.root.get_screen("settings")
         settings_screen.ids.daily_goal.text = self._compact_number(daily_goal)

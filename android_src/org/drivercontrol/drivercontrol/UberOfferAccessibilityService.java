@@ -3,20 +3,12 @@ package org.drivercontrol.drivercontrol;
 import android.accessibilityservice.AccessibilityService;
 import android.accessibilityservice.AccessibilityServiceInfo;
 import android.content.Intent;
-import android.graphics.Bitmap;
-import android.graphics.ColorSpace;
-import android.hardware.HardwareBuffer;
 import android.os.Build;
 import android.os.SystemClock;
 import android.provider.Settings;
 import android.view.Display;
 import android.view.accessibility.AccessibilityEvent;
 import android.view.accessibility.AccessibilityNodeInfo;
-
-import com.google.mlkit.vision.common.InputImage;
-import com.google.mlkit.vision.text.TextRecognition;
-import com.google.mlkit.vision.text.TextRecognizer;
-import com.google.mlkit.vision.text.latin.TextRecognizerOptions;
 
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -38,26 +30,21 @@ public class UberOfferAccessibilityService extends AccessibilityService {
 
     // Ritmo conservador: suficiente para una tarjeta que permanece varios segundos,
     // sin castigar CPU/batería ni topar el rate-limit de takeScreenshot().
-    private static final long SCREENSHOT_INTERVAL_MS = 1200L;
     private static final long STATUS_THROTTLE_MS = 2500L;
-    private static final int MAX_OCR_WIDTH = 1080;
 
     // Fallback solamente para Android < 11.
     private static final int LEGACY_MAX_NODES = 180;
     private static final int LEGACY_MAX_DEPTH = 12;
     private static final int LEGACY_MAX_LINES = 90;
 
-    private TextRecognizer recognizer;
-    private boolean screenshotInFlight = false;
-    private long lastScreenshotAt = 0L;
+    private DriverCopilotCoordinator coordinator;
     private long lastStatusAt = 0L;
-    private int lastPayloadHash = 0;
 
     @Override
     protected void onServiceConnected() {
         super.onServiceConnected();
 
-        recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS);
+        coordinator = new DriverCopilotCoordinator();
 
         AccessibilityServiceInfo info = getServiceInfo();
         if (info != null) {
@@ -102,131 +89,49 @@ public class UberOfferAccessibilityService extends AccessibilityService {
      * Esto funciona aunque Uber dibuje la tarjeta sin exponer nodos de texto.
      */
     private void requestVisualRead() {
-        long now = SystemClock.elapsedRealtime();
-        if (screenshotInFlight || now - lastScreenshotAt < SCREENSHOT_INTERVAL_MS) return;
-
-        screenshotInFlight = true;
-        lastScreenshotAt = now;
+        if (coordinator == null || !coordinator.tryBeginCapture()) return;
 
         try {
             takeScreenshot(
                     Display.DEFAULT_DISPLAY,
-                    getMainExecutor(),
+                    coordinator.callbackExecutor(),
                     new AccessibilityService.TakeScreenshotCallback() {
                         @Override
                         public void onSuccess(AccessibilityService.ScreenshotResult result) {
-                            processScreenshot(result);
+                            coordinator.process(result, new DriverCopilotCoordinator.Callback() {
+                                @Override
+                                public void onResult(
+                                        DriverCopilotCoordinator.ScreenType type,
+                                        String text,
+                                        double cashFare,
+                                        float confidence
+                                ) {
+                                    if (type == DriverCopilotCoordinator.ScreenType.OFFER) {
+                                        sendText(text);
+                                    } else if (type == DriverCopilotCoordinator.ScreenType.CASH_COLLECTION) {
+                                        if (confidence >= 0.85f) sendCashFare(cashFare);
+                                        else sendStatus("Confirmá el importe final", true);
+                                    }
+                                }
+
+                                @Override
+                                public void onError(String message) {
+                                    sendStatus(message, true);
+                                }
+                            });
                         }
 
                         @Override
                         public void onFailure(int errorCode) {
-                            screenshotInFlight = false;
+                            coordinator.failCapture();
                             sendStatus("Lectura visual: captura falló (" + errorCode + ")", true);
                         }
                     }
             );
         } catch (Throwable error) {
-            screenshotInFlight = false;
+            coordinator.failCapture();
             sendStatus("Lectura visual: no se pudo capturar", true);
         }
-    }
-
-    private void processScreenshot(AccessibilityService.ScreenshotResult result) {
-        if (result == null) {
-            screenshotInFlight = false;
-            sendStatus("Lectura visual: captura vacía", true);
-            return;
-        }
-
-        HardwareBuffer buffer = null;
-        Bitmap hardwareBitmap = null;
-        Bitmap bitmap = null;
-        Bitmap ocrBitmap = null;
-
-        try {
-            buffer = result.getHardwareBuffer();
-            if (buffer == null) {
-                screenshotInFlight = false;
-                sendStatus("Lectura visual: sin imagen", true);
-                return;
-            }
-
-            ColorSpace colorSpace = result.getColorSpace();
-            if (colorSpace == null) {
-                colorSpace = ColorSpace.get(ColorSpace.Named.SRGB);
-            }
-
-            hardwareBitmap = Bitmap.wrapHardwareBuffer(buffer, colorSpace);
-            if (hardwareBitmap == null) {
-                screenshotInFlight = false;
-                sendStatus("Lectura visual: formato no compatible", true);
-                return;
-            }
-
-            // ML Kit trabaja de forma más predecible con un bitmap software ARGB_8888.
-            bitmap = hardwareBitmap.copy(Bitmap.Config.ARGB_8888, false);
-            if (bitmap == null) {
-                screenshotInFlight = false;
-                sendStatus("Lectura visual: no se pudo preparar imagen", true);
-                return;
-            }
-
-            if (bitmap.getWidth() > MAX_OCR_WIDTH) {
-                int targetHeight = Math.max(
-                        1,
-                        Math.round(bitmap.getHeight() * (MAX_OCR_WIDTH / (float) bitmap.getWidth()))
-                );
-                ocrBitmap = Bitmap.createScaledBitmap(bitmap, MAX_OCR_WIDTH, targetHeight, true);
-            } else {
-                ocrBitmap = bitmap;
-            }
-
-        } catch (Throwable error) {
-            screenshotInFlight = false;
-            sendStatus("Lectura visual: error preparando captura", true);
-            recycle(bitmap);
-            recycle(hardwareBitmap);
-            close(buffer);
-            return;
-        } finally {
-            // Ya copiamos la imagen fuera del HardwareBuffer.
-            close(buffer);
-            recycle(hardwareBitmap);
-        }
-
-        final Bitmap input = ocrBitmap;
-        final Bitmap original = bitmap;
-
-        if (recognizer == null || input == null) {
-            screenshotInFlight = false;
-            if (input != original) recycle(input);
-            recycle(original);
-            sendStatus("Lectura visual: OCR no disponible", true);
-            return;
-        }
-
-        recognizer.process(InputImage.fromBitmap(input, 0))
-                .addOnSuccessListener(resultText -> {
-                    String raw = resultText == null ? "" : resultText.getText();
-                    if (raw == null || raw.trim().isEmpty()) {
-                        sendStatus("OCR · pantalla leída sin texto", true);
-                        return;
-                    }
-
-                    String trimmed = raw.trim();
-                    int hash = trimmed.hashCode();
-                    if (hash == lastPayloadHash) return;
-                    lastPayloadHash = hash;
-
-                    sendText(trimmed);
-                })
-                .addOnFailureListener(error ->
-                        sendStatus("OCR · no pudo reconocer este cuadro", true))
-                .addOnCompleteListener(task -> {
-                    if (input != original) recycle(input);
-                    recycle(original);
-                    screenshotInFlight = false;
-                });
     }
 
     /**
@@ -313,6 +218,18 @@ public class UberOfferAccessibilityService extends AccessibilityService {
         }
     }
 
+    private void sendCashFare(double fare) {
+        if (fare <= 0.0) return;
+        try {
+            Intent intent = new Intent(this, DriverOverlayService.class)
+                    .setAction(DriverOverlayService.ACTION_CASH_FARE)
+                    .putExtra(DriverOverlayService.EXTRA_CASH_FARE, fare);
+            startOverlayService(intent);
+        } catch (Throwable error) {
+            sendStatus("OCR · error enviando importe final", true);
+        }
+    }
+
     private void sendStatus(String message, boolean throttled) {
         long now = SystemClock.elapsedRealtime();
         if (throttled && now - lastStatusAt < STATUS_THROTTLE_MS) return;
@@ -353,22 +270,6 @@ public class UberOfferAccessibilityService extends AccessibilityService {
         return false;
     }
 
-    private static void recycle(Bitmap bitmap) {
-        if (bitmap == null) return;
-        try {
-            if (!bitmap.isRecycled()) bitmap.recycle();
-        } catch (Throwable ignored) {
-        }
-    }
-
-    private static void close(HardwareBuffer buffer) {
-        if (buffer == null) return;
-        try {
-            buffer.close();
-        } catch (Throwable ignored) {
-        }
-    }
-
     private static void recycleNode(AccessibilityNodeInfo node) {
         if (node == null) return;
         try {
@@ -384,13 +285,8 @@ public class UberOfferAccessibilityService extends AccessibilityService {
 
     @Override
     public void onDestroy() {
-        if (recognizer != null) {
-            try {
-                recognizer.close();
-            } catch (Throwable ignored) {
-            }
-            recognizer = null;
-        }
+        if (coordinator != null) coordinator.close();
+        coordinator = null;
         super.onDestroy();
     }
 

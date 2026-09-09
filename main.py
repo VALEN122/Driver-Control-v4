@@ -1,6 +1,7 @@
 import csv
 import logging
 import sqlite3
+import threading
 from contextlib import contextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -31,7 +32,7 @@ from kivymd.uix.textfield import MDTextField
 # ============================================================
 
 APP_NAME = "Driver Control"
-APP_VERSION = "5.6.0"
+APP_VERSION = "5.7.0"
 DB_FILE = "driver_control.db"
 DATE_FORMAT = "%d/%m/%Y"
 DATETIME_FORMAT = "%d/%m/%Y %H:%M"
@@ -44,6 +45,8 @@ DEFAULT_FUEL_PRICE = 2048.0  # $/L; editable en Configuración
 DEFAULT_ASSISTANT_MIN_HOURLY = 15000.0
 DEFAULT_ASSISTANT_MIN_PER_KM = 300.0
 DEFAULT_ASSISTANT_MAX_PICKUP_KM = 3.0
+DEFAULT_AI_SERVER_URL = ""
+DEFAULT_AI_ACCESS_TOKEN = ""
 
 PAYMENT_CASH = "Efectivo"
 PAYMENT_MP = "Mercado Pago"
@@ -974,6 +977,50 @@ ScreenManager:
                 MDCard:
                     orientation: "vertical"
                     padding: dp(16)
+                    spacing: dp(8)
+                    radius: [18,18,18,18]
+                    md_bg_color: app.card_color
+                    size_hint_y: None
+                    height: dp(300)
+
+                    MDLabel:
+                        text: "IA avanzada"
+                        font_style: "H6"
+                        bold: True
+                        size_hint_y: None
+                        height: dp(34)
+
+                    MDLabel:
+                        text: root.ai_status_text
+                        theme_text_color: "Custom"
+                        text_color: app.muted_color
+                        font_style: "Caption"
+                        size_hint_y: None
+                        height: dp(38)
+
+                    MDTextField:
+                        id: assistant_ai_question
+                        hint_text: "Pregunta para el asistente"
+                        text: "¿Conviene aceptar este viaje y por qué?"
+
+                    MDRaisedButton:
+                        text: "CONSULTAR IA"
+                        size_hint_y: None
+                        height: dp(52)
+                        md_bg_color: app.accent_color
+                        on_release: app.analyze_trip_with_ai()
+
+                    MDLabel:
+                        text: root.ai_response_text
+                        theme_text_color: "Custom"
+                        text_color: app.muted_color
+                        font_style: "Caption"
+                        size_hint_y: None
+                        height: dp(100)
+
+                MDCard:
+                    orientation: "vertical"
+                    padding: dp(16)
                     spacing: dp(7)
                     radius: [18,18,18,18]
                     md_bg_color: app.card_color
@@ -1198,6 +1245,26 @@ ScreenManager:
                     hint_text: "Pickup máximo deseado (km)"
                     input_filter: "float"
 
+                MDLabel:
+                    text: "Conexión con IA"
+                    font_style: "H6"
+                    bold: True
+                    size_hint_y: None
+                    height: dp(34)
+
+                MDTextField:
+                    id: ai_server_url
+                    hint_text: "Dirección segura del servidor de IA"
+                    helper_text: "Ejemplo: https://tu-servidor.com"
+                    helper_text_mode: "on_focus"
+
+                MDTextField:
+                    id: ai_access_token
+                    hint_text: "Código de acceso del dispositivo"
+                    password: True
+                    helper_text: "No es la clave de OpenAI"
+                    helper_text_mode: "on_focus"
+
                 MDRaisedButton:
                     text: "Guardar configuración"
                     on_release: app.save_settings()
@@ -1295,6 +1362,8 @@ class TripAssistantScreen(Screen):
     metrics_text = StringProperty("Tarifa · tiempo · kilómetros · combustible")
     reason_text = StringProperty("La app comparará el viaje con tus objetivos.")
     recommendation_color = ListProperty([0.10, 0.55, 0.25, 1])
+    ai_status_text = StringProperty("Configurá el servidor para activar la IA.")
+    ai_response_text = StringProperty("La IA explicará la decisión sin aceptar el viaje por vos.")
 
 
 class WellnessMapScreen(Screen):
@@ -1555,6 +1624,14 @@ class DriverControlApp(MDApp):
             self.conn.execute(
                 "INSERT OR IGNORE INTO settings(key,value) VALUES('assistant_max_pickup_km',?)",
                 (str(DEFAULT_ASSISTANT_MAX_PICKUP_KM),),
+            )
+            self.conn.execute(
+                "INSERT OR IGNORE INTO settings(key,value) VALUES('ai_server_url',?)",
+                (DEFAULT_AI_SERVER_URL,),
+            )
+            self.conn.execute(
+                "INSERT OR IGNORE INTO settings(key,value) VALUES('ai_access_token',?)",
+                (DEFAULT_AI_ACCESS_TOKEN,),
             )
 
     def _ensure_column(self, table: str, column: str, sql_type: str):
@@ -2306,6 +2383,182 @@ class DriverControlApp(MDApp):
             LOGGER.exception("Could not analyze trip offer")
             self.show_message("Error", "No se pudo analizar el viaje.")
 
+    def analyze_trip_with_ai(self):
+        """Consulta el servidor seguro sin exponer la clave de OpenAI en el APK."""
+        screen = self.root.get_screen("assistant")
+        try:
+            server_url = self.setting("ai_server_url", DEFAULT_AI_SERVER_URL).strip().rstrip("/")
+            access_token = self.setting("ai_access_token", DEFAULT_AI_ACCESS_TOKEN).strip()
+            if not server_url or not access_token:
+                raise ValidationError(
+                    "Configurá la dirección del servidor y el código de acceso en Configuración."
+                )
+            if not server_url.startswith("https://"):
+                raise ValidationError("El servidor de IA debe usar una dirección segura https://")
+
+            fare = self._parse_non_negative_float(
+                screen.ids.assistant_fare.text, "Tarifa", allow_zero=False
+            )
+            pickup_min = self._parse_non_negative_float(
+                screen.ids.assistant_pickup_min.text, "Min para buscar"
+            )
+            pickup_km = self._parse_non_negative_float(
+                screen.ids.assistant_pickup_km.text, "Km para buscar"
+            )
+            trip_min = self._parse_non_negative_float(
+                screen.ids.assistant_trip_min.text, "Min del viaje"
+            )
+            trip_km = self._parse_non_negative_float(
+                screen.ids.assistant_trip_km.text, "Km del viaje"
+            )
+            local_result = self._assistant_result(
+                fare, pickup_min, pickup_km, trip_min, trip_km, screen.destination_rating
+            )
+            self.last_assistant_result = local_result
+            question = (screen.ids.assistant_ai_question.text or "").strip()
+            if not question:
+                question = "¿Conviene aceptar este viaje y por qué?"
+
+            payload = {
+                "app_version": APP_VERSION,
+                "question": question[:500],
+                "vehicle": self.setting("vehicle", DEFAULT_VEHICLE),
+                "trip": {
+                    key: local_result[key]
+                    for key in (
+                        "fare", "pickup_min", "pickup_km", "trip_min", "trip_km",
+                        "total_min", "total_km", "fuel_cost", "net_est",
+                        "hourly_est", "per_km_est", "score", "recommendation",
+                        "destination",
+                    )
+                },
+                "goals": {
+                    "minimum_hourly": self._setting_float(
+                        "assistant_min_hourly", DEFAULT_ASSISTANT_MIN_HOURLY
+                    ),
+                    "minimum_per_km": self._setting_float(
+                        "assistant_min_per_km", DEFAULT_ASSISTANT_MIN_PER_KM
+                    ),
+                    "maximum_pickup_km": self._setting_float(
+                        "assistant_max_pickup_km", DEFAULT_ASSISTANT_MAX_PICKUP_KM
+                    ),
+                },
+                "driver_context": self._ai_driver_context(),
+                "recent_decisions": self._ai_recent_decisions(),
+            }
+
+            screen.ai_status_text = "Consultando IA…"
+            screen.ai_response_text = "Analizando rentabilidad, historial y fatiga."
+            threading.Thread(
+                target=self._ai_request_worker,
+                args=(server_url, access_token, payload),
+                daemon=True,
+            ).start()
+        except ValidationError as exc:
+            self.show_message("IA", str(exc))
+        except Exception:
+            LOGGER.exception("Could not prepare AI request")
+            self.show_message("IA", "No se pudo preparar la consulta.")
+
+    def _ai_driver_context(self):
+        session = self._active_session()
+        if session is None:
+            return {
+                "session_active": False,
+                "effective_minutes": 0,
+                "on_break": False,
+                "reported_fatigue": 1,
+            }
+
+        session_id = int(session["id"])
+        now = datetime.now()
+        opened = datetime.strptime(session["opened_at"], DATETIME_FORMAT)
+        breaks = self.conn.execute(
+            "SELECT started_at,ended_at FROM driver_breaks WHERE session_id=?",
+            (session_id,),
+        ).fetchall()
+        break_seconds = 0.0
+        on_break = False
+        for row in breaks:
+            started = datetime.strptime(row["started_at"], DATETIME_FORMAT)
+            ended = datetime.strptime(row["ended_at"], DATETIME_FORMAT) if row["ended_at"] else now
+            break_seconds += max(0.0, (ended - started).total_seconds())
+            on_break = on_break or row["ended_at"] is None
+        effective_seconds = max(0.0, (now - opened).total_seconds() - break_seconds)
+        checkin = self.conn.execute(
+            "SELECT level FROM fatigue_checkins WHERE session_id=? ORDER BY id DESC LIMIT 1",
+            (session_id,),
+        ).fetchone()
+        return {
+            "session_active": True,
+            "effective_minutes": round(effective_seconds / 60.0),
+            "break_minutes": round(break_seconds / 60.0),
+            "on_break": on_break,
+            "reported_fatigue": int(checkin["level"]) if checkin else 1,
+        }
+
+    def _ai_recent_decisions(self):
+        rows = self.conn.execute(
+            """
+            SELECT fare,total_min,total_km,hourly_est,per_km_est,
+                   score,recommendation,destination_rating,decision
+            FROM trip_assessments
+            WHERE decision IS NOT NULL
+            ORDER BY id DESC LIMIT 30
+            """
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+    def _ai_request_worker(self, server_url: str, access_token: str, payload: dict):
+        try:
+            import requests
+
+            response = requests.post(
+                f"{server_url}/v1/driver/analyze",
+                json=payload,
+                headers={
+                    "Authorization": f"Bearer {access_token}",
+                    "Content-Type": "application/json",
+                },
+                timeout=(6, 35),
+            )
+            response.raise_for_status()
+            data = response.json()
+            if not isinstance(data, dict) or not data.get("answer"):
+                raise ValueError("Invalid AI response")
+            Clock.schedule_once(lambda _dt: self._apply_ai_response(data), 0)
+        except Exception as exc:
+            LOGGER.exception("AI request failed")
+            message = "No se pudo conectar con la IA. Revisá internet y la configuración."
+            if getattr(exc, "response", None) is not None:
+                status = getattr(exc.response, "status_code", 0)
+                if status in (401, 403):
+                    message = "El código de acceso al servidor no es válido."
+                elif status == 429:
+                    message = "La IA alcanzó el límite de uso. Intentá nuevamente en unos minutos."
+            Clock.schedule_once(lambda _dt, msg=message: self._apply_ai_error(msg), 0)
+
+    def _apply_ai_response(self, data: dict):
+        screen = self.root.get_screen("assistant")
+        verdict = str(data.get("verdict", "REVISAR")).upper()
+        score = int(self._clamp(float(data.get("score", 50)), 0, 100))
+        answer = str(data.get("answer", "")).strip()
+        reasons = data.get("reasons") or []
+        fatigue_advice = str(data.get("fatigue_advice", "")).strip()
+        details = answer
+        if reasons:
+            details += "\n" + " · ".join(str(item) for item in reasons[:3])
+        if fatigue_advice:
+            details += "\nSeguridad: " + fatigue_advice
+        screen.ai_status_text = f"IA: {verdict} · {score}/100"
+        screen.ai_response_text = details[:900]
+
+    def _apply_ai_error(self, message: str):
+        screen = self.root.get_screen("assistant")
+        screen.ai_status_text = "IA no disponible"
+        screen.ai_response_text = message
+        self.show_message("IA", message)
+
     def _show_assistant_result_dialog(self, result):
         dialog = None
 
@@ -2493,6 +2746,12 @@ class DriverControlApp(MDApp):
         )
         settings_screen.ids.assistant_max_pickup_km.text = self._compact_number(
             self._setting_float("assistant_max_pickup_km", DEFAULT_ASSISTANT_MAX_PICKUP_KM)
+        )
+        settings_screen.ids.ai_server_url.text = self.setting(
+            "ai_server_url", DEFAULT_AI_SERVER_URL
+        )
+        settings_screen.ids.ai_access_token.text = self.setting(
+            "ai_access_token", DEFAULT_AI_ACCESS_TOKEN
         )
 
     def _refresh_cash_summary(self, date_text: str):
@@ -3198,6 +3457,10 @@ class DriverControlApp(MDApp):
             assistant_max_pickup_km = self._parse_non_negative_float(
                 screen.ids.assistant_max_pickup_km.text, "Pickup máximo", allow_zero=False
             )
+            ai_server_url = (screen.ids.ai_server_url.text or "").strip().rstrip("/")
+            ai_access_token = (screen.ids.ai_access_token.text or "").strip()
+            if ai_server_url and not ai_server_url.startswith("https://"):
+                raise ValidationError("La dirección del servidor de IA debe comenzar con https://")
 
             with self.transaction():
                 self.conn.execute(
@@ -3231,6 +3494,14 @@ class DriverControlApp(MDApp):
                 self.conn.execute(
                     "INSERT OR REPLACE INTO settings(key,value) VALUES('assistant_max_pickup_km',?)",
                     (str(assistant_max_pickup_km),),
+                )
+                self.conn.execute(
+                    "INSERT OR REPLACE INTO settings(key,value) VALUES('ai_server_url',?)",
+                    (ai_server_url,),
+                )
+                self.conn.execute(
+                    "INSERT OR REPLACE INTO settings(key,value) VALUES('ai_access_token',?)",
+                    (ai_access_token,),
                 )
 
             self._sync_android_assistant_settings()

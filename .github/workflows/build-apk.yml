@@ -1,4 +1,4 @@
-name: Build Driver Control v5.1 APK
+name: Build Driver Control v5.8 APK
 
 on:
   workflow_dispatch:
@@ -50,18 +50,18 @@ jobs:
             sed -i '/<\/application>/e cat android_manifest/application_services.xml' "$MANIFEST_PATH"
           fi
 
-                    # Copiar explícitamente los servicios Android al proyecto generado.
+          # Copiar todos los componentes Android al proyecto generado.
           JAVA_DST="$DIST_DIR/src/main/java/org/drivercontrol/drivercontrol"
           mkdir -p "$JAVA_DST"
 
-          cp -v android_src/org/drivercontrol/drivercontrol/DriverOverlayService.java "$JAVA_DST/"
-          cp -v android_src/org/drivercontrol/drivercontrol/UberOfferAccessibilityService.java "$JAVA_DST/"
-          cp -v android_src/org/drivercontrol/drivercontrol/OcrCaptureService.java "$JAVA_DST/"
+          cp -v android_src/org/drivercontrol/drivercontrol/*.java "$JAVA_DST/"
 
           # Verificar que realmente quedaron dentro del proyecto Android.
           test -f "$JAVA_DST/DriverOverlayService.java"
           test -f "$JAVA_DST/UberOfferAccessibilityService.java"
           test -f "$JAVA_DST/OcrCaptureService.java"
+          test -f "$JAVA_DST/DriverCopilotCoordinator.java"
+          test -f "$JAVA_DST/TripProfitabilityAnalyzer.java"
 
           echo "=== Servicios Android copiados correctamente ==="
           ls -la "$JAVA_DST"
@@ -73,11 +73,11 @@ jobs:
           APK_PATH=$(find "$DIST_DIR/build/outputs/apk/debug" -name '*.apk' -print -quit)
           test -n "$APK_PATH"
           mkdir -p bin
-          cp "$APK_PATH" bin/driver-control-v5.1.0-debug.apk
+          cp "$APK_PATH" bin/driver-control-v5.8.0-debug.apk
 
-      - name: Upload Driver Control v5 APK
+      - name: Upload Driver Control v5.8 APK
         uses: actions/upload-artifact@v4
         with:
-          name: Driver-Control-v5.1.0-UberFilter-OCR-APK
-          path: bin/driver-control-v5.1.0-debug.apk
+          name: Driver-Control-v5.8.0-Gemini-Vision-APK
+          path: bin/driver-control-v5.8.0-debug.apk
           if-no-files-found: error

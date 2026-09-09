@@ -13,6 +13,7 @@ import com.google.mlkit.vision.text.TextRecognition;
 import com.google.mlkit.vision.text.TextRecognizer;
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions;
 
+import java.io.ByteArrayOutputStream;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -31,7 +32,7 @@ public final class DriverCopilotCoordinator {
     public enum ScreenType { OFFER, CASH_COLLECTION, IRRELEVANT }
 
     public interface Callback {
-        void onResult(ScreenType type, String text, double cashFare, float confidence);
+        void onResult(ScreenType type, String text, double cashFare, float confidence, byte[] jpeg);
         void onError(String message);
     }
 
@@ -71,15 +72,19 @@ public final class DriverCopilotCoordinator {
         return workerExecutor;
     }
 
-    public void process(AccessibilityService.ScreenshotResult result, Callback callback) {
-        worker.post(() -> processOnWorker(result, callback));
+    public void process(AccessibilityService.ScreenshotResult result, boolean includeJpeg, Callback callback) {
+        worker.post(() -> processOnWorker(result, includeJpeg, callback));
     }
 
     public synchronized void failCapture() {
         inFlight = false;
     }
 
-    private void processOnWorker(AccessibilityService.ScreenshotResult result, Callback callback) {
+    private void processOnWorker(
+            AccessibilityService.ScreenshotResult result,
+            boolean includeJpeg,
+            Callback callback
+    ) {
         HardwareBuffer buffer = null;
         Bitmap hardware = null;
         Bitmap software = null;
@@ -122,6 +127,14 @@ public final class DriverCopilotCoordinator {
 
         final Bitmap input = scaled;
         final Bitmap original = software;
+        final byte[] jpeg;
+        if (includeJpeg) {
+            ByteArrayOutputStream encoded = new ByteArrayOutputStream();
+            input.compress(Bitmap.CompressFormat.JPEG, 62, encoded);
+            jpeg = encoded.toByteArray();
+        } else {
+            jpeg = null;
+        }
         recognizer.process(InputImage.fromBitmap(input, 0))
                 .addOnSuccessListener(workerExecutor, resultText -> {
                     String text = resultText == null ? "" : resultText.getText().trim();
@@ -135,7 +148,8 @@ public final class DriverCopilotCoordinator {
                         lastPayloadHash = hash;
                     }
                     VisionDecision decision = classify(text);
-                    callback.onResult(decision.type, text, decision.cashFare, decision.confidence);
+                    callback.onResult(
+                            decision.type, text, decision.cashFare, decision.confidence, jpeg);
                 })
                 .addOnFailureListener(workerExecutor,
                         error -> callback.onError("OCR · no pudo reconocer este cuadro"))

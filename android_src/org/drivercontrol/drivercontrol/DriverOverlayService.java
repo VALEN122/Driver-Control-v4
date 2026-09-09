@@ -52,11 +52,16 @@ public class DriverOverlayService extends Service {
     public static final String ACTION_SOURCE_TEXT = "org.drivercontrol.drivercontrol.SOURCE_TEXT";
     public static final String ACTION_READER_STATUS = "org.drivercontrol.drivercontrol.READER_STATUS";
     public static final String ACTION_CASH_FARE = "org.drivercontrol.drivercontrol.CASH_FARE";
+    public static final String ACTION_GEMINI_OFFER = "org.drivercontrol.drivercontrol.GEMINI_OFFER";
 
     public static final String EXTRA_SOURCE_TEXT = "source_text";
     public static final String EXTRA_SOURCE_KIND = "source_kind";
     public static final String EXTRA_READER_STATUS = "reader_status";
     public static final String EXTRA_CASH_FARE = "cash_fare";
+    public static final String EXTRA_PICKUP_MIN = "pickup_min";
+    public static final String EXTRA_PICKUP_KM = "pickup_km";
+    public static final String EXTRA_TRIP_MIN = "trip_min";
+    public static final String EXTRA_TRIP_KM = "trip_km";
 
     private static final String CHANNEL = "driver_control_overlay";
     private static final int NOTIFICATION_ID = 61;
@@ -131,6 +136,8 @@ public class DriverOverlayService extends Service {
             } else if (ACTION_CASH_FARE.equals(action)) {
                 double fare = intent.getDoubleExtra(EXTRA_CASH_FARE, 0.0);
                 if (fare > 0.0) handleDetectedCashFare(fare);
+            } else if (ACTION_GEMINI_OFFER.equals(action)) {
+                processGeminiOffer(intent);
             } else if (ACTION_READER_STATUS.equals(action)) {
                 String message = intent.getStringExtra(EXTRA_READER_STATUS);
                 if (message != null && !message.trim().isEmpty()) {
@@ -140,6 +147,22 @@ public class DriverOverlayService extends Service {
             }
         }
         return START_STICKY;
+    }
+
+    private void processGeminiOffer(Intent intent) {
+        double fare = intent.getDoubleExtra(EXTRA_CASH_FARE, 0.0);
+        double pickupMin = intent.getDoubleExtra(EXTRA_PICKUP_MIN, -1.0);
+        double pickupKm = intent.getDoubleExtra(EXTRA_PICKUP_KM, -1.0);
+        double tripMin = intent.getDoubleExtra(EXTRA_TRIP_MIN, -1.0);
+        double tripKm = intent.getDoubleExtra(EXTRA_TRIP_KM, -1.0);
+        OfferParser.Offer offer = new OfferParser.Offer(
+                fare, pickupMin, pickupKm, tripMin, tripKm);
+        if (!offer.isUsable()) {
+            updateReaderStatus("Gemini · oferta incompleta", "");
+            showTransientStatus("Gemini no pudo leer todos los datos", true);
+            return;
+        }
+        processOffer(offer, "Gemini · oferta completa");
     }
 
     private String safeSourceKind(String sourceKind) {
@@ -161,7 +184,11 @@ public class DriverOverlayService extends Service {
             return;
         }
 
-        OfferParser.Offer offer = parsed.offer;
+        processOffer(parsed.offer, diagnostic);
+    }
+
+    private void processOffer(OfferParser.Offer offer, String diagnostic) {
+        updateReaderStatus(diagnostic, "");
         Analysis analysis = analyze(offer);
         String signature = offer.fare + "|" + offer.pickupMin + "|" + offer.pickupKm
                 + "|" + offer.tripMin + "|" + offer.tripKm;

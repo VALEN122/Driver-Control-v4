@@ -32,7 +32,7 @@ from kivymd.uix.textfield import MDTextField
 # ============================================================
 
 APP_NAME = "Driver Control"
-APP_VERSION = "5.7.0"
+APP_VERSION = "5.8.0"
 DB_FILE = "driver_control.db"
 DATE_FORMAT = "%d/%m/%Y"
 DATETIME_FORMAT = "%d/%m/%Y %H:%M"
@@ -876,7 +876,7 @@ ScreenManager:
                     radius: [18,18,18,18]
                     md_bg_color: app.card_color
                     size_hint_y: None
-                    height: dp(326)
+                    height: dp(392)
 
                     MDLabel:
                         text: "Flotante sobre Uber"
@@ -886,7 +886,7 @@ ScreenManager:
                         height: dp(34)
 
                     MDLabel:
-                        text: "Un único visor local lee ofertas y cobros mediante Accesibilidad + ML Kit. Mantené pulsada la burbuja $ para ver el diagnóstico."
+                        text: "Elegí lectura local o lectura visual con Gemini. Mantené pulsada la burbuja $ para ver el diagnóstico."
                         theme_text_color: "Custom"
                         text_color: app.muted_color
                         font_style: "Caption"
@@ -904,6 +904,12 @@ ScreenManager:
                         size_hint_y: None
                         height: dp(50)
                         on_release: app.request_uber_accessibility()
+
+                    MDRaisedButton:
+                        text: "LECTURA VISUAL CON GEMINI"
+                        size_hint_y: None
+                        height: dp(50)
+                        on_release: app.request_gemini_visual_accessibility()
 
                     MDFlatButton:
                         text: "DETENER FLOTANTE"
@@ -2186,7 +2192,7 @@ class DriverControlApp(MDApp):
         }
 
     def _sync_android_assistant_settings(self):
-        """Copia al servicio Android solo parámetros numéricos del asistente."""
+        """Copia al servicio Android parámetros y credenciales del servidor configurado."""
         if platform != "android":
             return
         try:
@@ -2200,6 +2206,8 @@ class DriverControlApp(MDApp):
             editor.putFloat("min_hourly", float(self._setting_float("assistant_min_hourly", DEFAULT_ASSISTANT_MIN_HOURLY)))
             editor.putFloat("min_per_km", float(self._setting_float("assistant_min_per_km", DEFAULT_ASSISTANT_MIN_PER_KM)))
             editor.putFloat("max_pickup_km", float(self._setting_float("assistant_max_pickup_km", DEFAULT_ASSISTANT_MAX_PICKUP_KM)))
+            editor.putString("ai_server_url", self.setting("ai_server_url", DEFAULT_AI_SERVER_URL).strip().rstrip("/"))
+            editor.putString("ai_access_token", self.setting("ai_access_token", DEFAULT_AI_ACCESS_TOKEN).strip())
             editor.apply()
         except Exception:
             LOGGER.exception("Could not sync Android overlay settings")
@@ -2328,6 +2336,7 @@ class DriverControlApp(MDApp):
         def continue_to_settings(_button):
             if dialog is not None:
                 dialog.dismiss()
+            self._set_android_gemini_visual_enabled(False)
             self._sync_android_assistant_settings()
             self._start_driver_overlay_service()
             try:
@@ -2349,6 +2358,71 @@ class DriverControlApp(MDApp):
             buttons=[
                 MDFlatButton(text="CANCELAR", on_release=cancel),
                 MDFlatButton(text="CONTINUAR", on_release=continue_to_settings),
+            ],
+        )
+        dialog.open()
+
+    def _set_android_gemini_visual_enabled(self, enabled: bool):
+        if platform != "android":
+            return
+        try:
+            from jnius import autoclass
+            PythonActivity = autoclass("org.kivy.android.PythonActivity")
+            PythonActivity.mActivity.getSharedPreferences("driver_control_overlay", 0).edit().putBoolean(
+                "gemini_visual_enabled", bool(enabled)
+            ).apply()
+        except Exception:
+            LOGGER.exception("Could not change Gemini visual mode")
+
+    def request_gemini_visual_accessibility(self):
+        """Activa lectura visual remota solo después de un consentimiento explícito."""
+        if platform != "android":
+            self.show_message("Solo Android", "La lectura visual funciona únicamente en Android.")
+            return
+
+        server_url = self.setting("ai_server_url", DEFAULT_AI_SERVER_URL).strip().rstrip("/")
+        access_token = self.setting("ai_access_token", DEFAULT_AI_ACCESS_TOKEN).strip()
+        if not server_url.startswith("https://") or not access_token:
+            self.show_message(
+                "Falta configuración",
+                "Guardá primero la dirección HTTPS del servidor y el código de acceso.",
+            )
+            return
+
+        disclosure = (
+            "Gemini leerá una captura reducida cuando el visor detecte una oferta de Uber. "
+            "La imagen puede incluir ubicación, destino u otros datos visibles. Se enviará por HTTPS "
+            "a tu servidor y luego a Google Gemini; Driver Control no la guarda. En el nivel gratuito, "
+            "Google puede usar el contenido para mejorar sus productos. No pulsa botones ni acepta viajes."
+        )
+        dialog = None
+
+        def cancel(_button):
+            if dialog is not None:
+                dialog.dismiss()
+
+        def continue_to_settings(_button):
+            if dialog is not None:
+                dialog.dismiss()
+            self._set_android_gemini_visual_enabled(True)
+            self._sync_android_assistant_settings()
+            self._start_driver_overlay_service()
+            try:
+                from jnius import autoclass
+                Intent = autoclass("android.content.Intent")
+                Settings = autoclass("android.provider.Settings")
+                PythonActivity = autoclass("org.kivy.android.PythonActivity")
+                PythonActivity.mActivity.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+            except Exception:
+                LOGGER.exception("Could not open Android accessibility settings")
+                self.show_message("Permiso", "No se pudieron abrir los ajustes de accesibilidad.")
+
+        dialog = MDDialog(
+            title="Lectura con Gemini",
+            text=disclosure,
+            buttons=[
+                MDFlatButton(text="CANCELAR", on_release=cancel),
+                MDFlatButton(text="ACEPTO Y CONTINUAR", on_release=continue_to_settings),
             ],
         )
         dialog.open()

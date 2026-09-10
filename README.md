@@ -1,4 +1,4 @@
-# Driver Control 5.5 — Copiloto local unificado
+# Driver Control 5.9 — Finanzas claras y operación interactiva
 
 Base estable 4.3.3 + Asistente de viajes.
 
@@ -29,3 +29,13 @@ jornada. El conductor puede informar cómo se siente y el analizador ajusta el
 veredicto: una oferta rentable puede pasar a dudosa o no conveniente si existe
 fatiga alta o una pausa activa. Los accesos a estaciones y áreas de descanso
 abren el mapa instalado y, durante una jornada, exigen iniciar antes una pausa.
+
+## 5.9 — Rediseño operativo
+
+- Inicio moderno con ganancia real estimada, explicación del cálculo y gráfico semanal interactivo.
+- Navegación principal reducida a Inicio, Jornada, Historial, Vehículo y Ajustes.
+- Ingreso del conductor, comisión Uber informada, facturación conocida, combustible y otros gastos separados.
+- Odómetro actualizable durante la jornada para no mostrar combustible ficticiamente en cero.
+- Calculadora de carga, accesos al mapa y registro de mantenimiento con próximos controles.
+- Decisión de viaje compacta: veredicto, ganancia, $/km, $/hora, nafta y factor decisivo.
+- Modo claro y oscuro, IA, Gemini visual, OCR, burbuja de vuelto y exportación completa a Excel.

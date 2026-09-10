@@ -8,9 +8,12 @@ from typing import Optional
 
 from kivy.lang import Builder
 from kivy.clock import Clock
+from kivy.graphics import Color, RoundedRectangle
 from kivy.metrics import dp
 from kivy.properties import ListProperty, NumericProperty, StringProperty
+from kivy.uix.scrollview import ScrollView
 from kivy.uix.screenmanager import Screen
+from kivy.uix.widget import Widget
 from kivy.utils import platform
 from kivymd.app import MDApp
 from kivymd.uix.boxlayout import MDBoxLayout
@@ -22,7 +25,7 @@ from kivymd.uix.textfield import MDTextField
 
 
 # ============================================================
-# Driver Control v4.1.0
+# Driver Control v5.9.0
 # Mejoras aplicadas:
 # - Valor actual de nafta dinámico y persistente con respaldo histórico.
 # - Exportación completa de datos operativos a un libro Excel.
@@ -31,7 +34,7 @@ from kivymd.uix.textfield import MDTextField
 # ============================================================
 
 APP_NAME = "Driver Control"
-APP_VERSION = "5.8.1"
+APP_VERSION = "5.9.0"
 DB_FILE = "driver_control.db"
 DATE_FORMAT = "%d/%m/%Y"
 DATETIME_FORMAT = "%d/%m/%Y %H:%M"
@@ -44,6 +47,7 @@ DEFAULT_FUEL_PRICE = 2048.0  # $/L; editable en Configuración
 DEFAULT_ASSISTANT_MIN_HOURLY = 15000.0
 DEFAULT_ASSISTANT_MIN_PER_KM = 300.0
 DEFAULT_ASSISTANT_MAX_PICKUP_KM = 3.0
+DEFAULT_TANK_CAPACITY = 55.0
 DEFAULT_AI_SERVER_URL = ""
 DEFAULT_AI_ACCESS_TOKEN = ""
 
@@ -77,6 +81,45 @@ KV = """
     size_hint_y: None
     height: dp(105)
 
+<MainNav>:
+    active_screen: ""
+    size_hint_y: None
+    height: dp(68)
+    padding: [dp(4), dp(4), dp(4), dp(6)]
+    spacing: dp(0)
+    md_bg_color: app.card_color
+
+    MDFlatButton:
+        text: "Inicio"
+        size_hint_x: 1
+        theme_text_color: "Custom"
+        text_color: app.accent_color if root.active_screen == "dashboard" else app.muted_color
+        on_release: app.go("dashboard")
+    MDFlatButton:
+        text: "Jornada"
+        size_hint_x: 1
+        theme_text_color: "Custom"
+        text_color: app.accent_color if root.active_screen == "cash" else app.muted_color
+        on_release: app.go_jornada()
+    MDFlatButton:
+        text: "Historial"
+        size_hint_x: 1
+        theme_text_color: "Custom"
+        text_color: app.accent_color if root.active_screen == "trips" else app.muted_color
+        on_release: app.go("trips")
+    MDFlatButton:
+        text: "Vehículo"
+        size_hint_x: 1
+        theme_text_color: "Custom"
+        text_color: app.accent_color if root.active_screen == "wellness_map" else app.muted_color
+        on_release: app.go("wellness_map")
+    MDFlatButton:
+        text: "Ajustes"
+        size_hint_x: 1
+        theme_text_color: "Custom"
+        text_color: app.accent_color if root.active_screen == "settings" else app.muted_color
+        on_release: app.go("settings")
+
 ScreenManager:
     DashboardScreen:
     TripEntryScreen:
@@ -87,6 +130,7 @@ ScreenManager:
     SessionsScreen:
     TripAssistantScreen:
     WellnessMapScreen:
+    MaintenanceScreen:
     SettingsScreen:
 
 <DashboardScreen>:
@@ -98,27 +142,272 @@ ScreenManager:
         MDTopAppBar:
             title: "Driver Control"
             md_bg_color: app.bg_color
+            right_action_items: [["shield-check", lambda x: app.go("assistant")]]
 
         ScrollView:
             MDBoxLayout:
                 orientation: "vertical"
-                padding: dp(16)
-                spacing: dp(14)
+                padding: [dp(16), dp(8), dp(16), dp(24)]
+                spacing: dp(12)
                 adaptive_height: True
 
-                MDLabel:
-                    text: "Resumen de hoy"
-                    font_style: "H5"
-                    bold: True
+                MDBoxLayout:
                     size_hint_y: None
-                    height: dp(40)
+                    height: dp(52)
+                    spacing: dp(8)
+                    MDBoxLayout:
+                        orientation: "vertical"
+                        MDLabel:
+                            text: "Resumen claro de tu trabajo"
+                            bold: True
+                            font_style: "H6"
+                        MDLabel:
+                            text: root.current_datetime_text
+                            theme_text_color: "Custom"
+                            text_color: app.muted_color
+                            font_style: "Caption"
+                    MDFlatButton:
+                        text: "HOY"
+                        theme_text_color: "Custom"
+                        text_color: app.accent_color if root.period_mode == "today" else app.muted_color
+                        on_release: app.set_dashboard_period("today")
+                    MDFlatButton:
+                        text: "7 DÍAS"
+                        theme_text_color: "Custom"
+                        text_color: app.accent_color if root.period_mode == "week" else app.muted_color
+                        on_release: app.set_dashboard_period("week")
 
-                MDLabel:
-                    text: root.current_datetime_text
-                    theme_text_color: "Custom"
-                    text_color: app.muted_color
+                MDCard:
+                    orientation: "vertical"
+                    padding: dp(18)
+                    spacing: dp(4)
+                    radius: [22,22,22,22]
+                    md_bg_color: app.primary_color
                     size_hint_y: None
-                    height: dp(28)
+                    height: dp(190)
+
+                    MDLabel:
+                        text: "GANANCIA REAL ESTIMADA · " + root.period_label.upper()
+                        theme_text_color: "Custom"
+                        text_color: app.on_primary_muted_color
+                        font_style: "Caption"
+                        size_hint_y: None
+                        height: dp(24)
+
+                    MDLabel:
+                        text: root.net_text
+                        theme_text_color: "Custom"
+                        text_color: app.on_primary_color
+                        font_style: "H3"
+                        bold: True
+                        size_hint_y: None
+                        height: dp(62)
+
+                    MDLabel:
+                        text: root.net_explanation_text
+                        theme_text_color: "Custom"
+                        text_color: app.on_primary_muted_color
+                        size_hint_y: None
+                        text_size: self.width, None
+                        height: dp(42)
+
+                    MDLabel:
+                        text: root.efficiency_text
+                        theme_text_color: "Custom"
+                        text_color: app.on_primary_color
+                        bold: True
+                        size_hint_y: None
+                        height: dp(28)
+
+                MDCard:
+                    orientation: "vertical"
+                    padding: dp(16)
+                    spacing: dp(6)
+                    radius: [18,18,18,18]
+                    md_bg_color: app.card_color
+                    size_hint_y: None
+                    height: dp(280)
+
+                    MDLabel:
+                        text: "De dónde sale"
+                        font_style: "H6"
+                        bold: True
+                        size_hint_y: None
+                        height: dp(32)
+                    MDGridLayout:
+                        cols: 2
+                        spacing: dp(4)
+                        size_hint_y: None
+                        height: dp(184)
+                        MDLabel:
+                            text: "Facturación conocida"
+                            theme_text_color: "Custom"
+                            text_color: app.muted_color
+                        MDLabel:
+                            text: root.revenue_text
+                            halign: "right"
+                            bold: True
+                        MDLabel:
+                            text: "Ingresos registrados"
+                            theme_text_color: "Custom"
+                            text_color: app.muted_color
+                        MDLabel:
+                            text: root.income_text
+                            halign: "right"
+                            bold: True
+                        MDLabel:
+                            text: "Comisión Uber informada"
+                            theme_text_color: "Custom"
+                            text_color: app.muted_color
+                        MDLabel:
+                            text: root.commission_text
+                            halign: "right"
+                        MDLabel:
+                            text: "Combustible consumido"
+                            theme_text_color: "Custom"
+                            text_color: app.muted_color
+                        MDLabel:
+                            text: "− " + root.fuel_cost_text
+                            halign: "right"
+                        MDLabel:
+                            text: "Otros gastos"
+                            theme_text_color: "Custom"
+                            text_color: app.muted_color
+                        MDLabel:
+                            text: "− " + root.expenses_text
+                            halign: "right"
+                        MDLabel:
+                            text: "Viajes · kilómetros"
+                            theme_text_color: "Custom"
+                            text_color: app.muted_color
+                        MDLabel:
+                            text: root.trips_text + " · " + root.km_text
+                            halign: "right"
+                    MDLabel:
+                        text: root.commission_help_text
+                        theme_text_color: "Custom"
+                        text_color: app.muted_color
+                        font_style: "Caption"
+                        text_size: self.width, None
+                        size_hint_y: None
+                        height: dp(42)
+
+                MDCard:
+                    orientation: "vertical"
+                    padding: dp(16)
+                    spacing: dp(6)
+                    radius: [18,18,18,18]
+                    md_bg_color: app.card_color
+                    size_hint_y: None
+                    height: dp(226)
+
+                    MDLabel:
+                        text: "Jornada"
+                        font_style: "H6"
+                        bold: True
+                        size_hint_y: None
+                        height: dp(32)
+
+                    MDLabel:
+                        text: root.session_status_text
+                        bold: True
+                        size_hint_y: None
+                        height: dp(30)
+                    MDLabel:
+                        text: root.session_time_text
+                        theme_text_color: "Custom"
+                        text_color: app.muted_color
+                        size_hint_y: None
+                        height: dp(32)
+                    MDRaisedButton:
+                        text: root.session_action_text
+                        size_hint_y: None
+                        height: dp(50)
+                        md_bg_color: app.accent_color
+                        on_release: app.toggle_work_session()
+                    MDFlatButton:
+                        text: "ACTUALIZAR ODÓMETRO"
+                        size_hint_y: None
+                        height: dp(42)
+                        on_release: app.open_current_odometer_dialog()
+
+                MDCard:
+                    orientation: "vertical"
+                    padding: dp(16)
+                    spacing: dp(5)
+                    radius: [18,18,18,18]
+                    md_bg_color: app.card_color
+                    size_hint_y: None
+                    height: dp(246)
+
+                    MDLabel:
+                        text: "Ingresos de los últimos 7 días"
+                        font_style: "H6"
+                        bold: True
+                        size_hint_y: None
+                        height: dp(32)
+                    WeeklyBarChart:
+                        values: root.week_values
+                        selected_index: root.chart_selected_index
+                        size_hint_y: None
+                        height: dp(116)
+                    MDGridLayout:
+                        cols: 7
+                        size_hint_y: None
+                        height: dp(24)
+                        MDLabel:
+                            text: "L"
+                            halign: "center"
+                            font_style: "Caption"
+                        MDLabel:
+                            text: "M"
+                            halign: "center"
+                            font_style: "Caption"
+                        MDLabel:
+                            text: "X"
+                            halign: "center"
+                            font_style: "Caption"
+                        MDLabel:
+                            text: "J"
+                            halign: "center"
+                            font_style: "Caption"
+                        MDLabel:
+                            text: "V"
+                            halign: "center"
+                            font_style: "Caption"
+                        MDLabel:
+                            text: "S"
+                            halign: "center"
+                            font_style: "Caption"
+                        MDLabel:
+                            text: "D"
+                            halign: "center"
+                            font_style: "Caption"
+                    MDLabel:
+                        text: root.chart_detail_text
+                        theme_text_color: "Custom"
+                        text_color: app.muted_color
+                        size_hint_y: None
+                        height: dp(32)
+
+                MDGridLayout:
+                    cols: 2
+                    spacing: dp(10)
+                    size_hint_y: None
+                    height: dp(118)
+                    MDRaisedButton:
+                        text: "¿CONVIENE?"
+                        md_bg_color: app.accent_color
+                        on_release: app.go("assistant")
+                    MDRaisedButton:
+                        text: "+ VIAJE"
+                        on_release: app.open_trip_dialog()
+                    MDFlatButton:
+                        text: "+ GASTO"
+                        on_release: app.open_expense_dialog()
+                    MDFlatButton:
+                        text: "VUELTO / CAJA"
+                        on_release: app.go("cash")
 
                 MDCard:
                     orientation: "vertical"
@@ -127,249 +416,27 @@ ScreenManager:
                     radius: [18,18,18,18]
                     md_bg_color: app.card_color
                     size_hint_y: None
-                    height: dp(196)
-
+                    height: dp(142)
                     MDLabel:
-                        text: "JORNADA"
-                        theme_text_color: "Custom"
-                        text_color: app.muted_color
-                        font_style: "Caption"
-                        size_hint_y: None
-                        height: dp(24)
-
-                    MDLabel:
-                        text: root.session_status_text
-                        font_style: "H5"
-                        bold: True
-                        size_hint_y: None
-                        height: dp(38)
-
-                    MDLabel:
-                        text: root.session_time_text
-                        theme_text_color: "Custom"
-                        text_color: app.muted_color
-                        size_hint_y: None
-                        height: dp(30)
-
-                    MDRaisedButton:
-                        text: root.session_action_text
-                        size_hint_y: None
-                        height: dp(48)
-                        on_release: app.toggle_work_session()
-
-                MDGridLayout:
-                    cols: 2
-                    adaptive_height: True
-                    spacing: dp(10)
-
-                    StatCard:
-                        MDLabel:
-                            text: "FACTURACIÓN"
-                            theme_text_color: "Custom"
-                            text_color: app.muted_color
-                            font_style: "Caption"
-                        MDLabel:
-                            text: root.revenue_text
-                            font_style: "H5"
-                            bold: True
-
-                    StatCard:
-                        MDLabel:
-                            text: "GANANCIA LIMPIA DISPONIBLE"
-                            theme_text_color: "Custom"
-                            text_color: app.muted_color
-                            font_style: "Caption"
-                        MDLabel:
-                            text: root.net_text
-                            font_style: "H5"
-                            bold: True
-
-                    StatCard:
-                        MDLabel:
-                            text: "KILÓMETROS"
-                            theme_text_color: "Custom"
-                            text_color: app.muted_color
-                            font_style: "Caption"
-                        MDLabel:
-                            text: root.km_text
-                            font_style: "H5"
-                            bold: True
-
-                    StatCard:
-                        MDLabel:
-                            text: "VIAJES"
-                            theme_text_color: "Custom"
-                            text_color: app.muted_color
-                            font_style: "Caption"
-                        MDLabel:
-                            text: root.trips_text
-                            font_style: "H5"
-                            bold: True
-
-                MDCard:
-                    orientation: "vertical"
-                    padding: dp(16)
-                    spacing: dp(7)
-                    radius: [16,16,16,16]
-                    md_bg_color: app.card_color
-                    size_hint_y: None
-                    height: dp(150)
-
-                    MDLabel:
-                        text: "COMBUSTIBLE DEL DÍA"
-                        theme_text_color: "Custom"
-                        text_color: app.muted_color
-                        font_style: "Caption"
-                        size_hint_y: None
-                        height: dp(24)
-                    MDLabel:
-                        text: root.fuel_used_text
+                        text: "Meta " + root.period_label.lower()
                         font_style: "H6"
                         bold: True
-                        size_hint_y: None
-                        height: dp(34)
-                    MDLabel:
-                        text: root.fuel_reserve_text
-                        theme_text_color: "Custom"
-                        text_color: app.muted_color
-                        size_hint_y: None
-                        height: dp(34)
-
-                MDCard:
-                    orientation: "vertical"
-                    padding: dp(16)
-                    spacing: dp(8)
-                    radius: [16,16,16,16]
-                    md_bg_color: app.card_color
-                    size_hint_y: None
-                    height: dp(154)
-
-                    MDLabel:
-                        text: "Meta diaria"
-                        font_style: "H6"
-                        bold: True
-                        size_hint_y: None
-                        height: dp(30)
-
                     MDLabel:
                         text: root.goal_text
                         theme_text_color: "Custom"
                         text_color: app.muted_color
-                        size_hint_y: None
-                        height: dp(26)
-
                     MDProgressBar:
                         value: root.goal_percent
                         max: 100
                         size_hint_y: None
-                        height: dp(6)
-
+                        height: dp(7)
                     MDLabel:
                         text: root.daily_remaining_text
                         theme_text_color: "Custom"
                         text_color: app.muted_color
-                        size_hint_y: None
-                        height: dp(26)
 
-                MDCard:
-                    orientation: "vertical"
-                    padding: dp(16)
-                    spacing: dp(8)
-                    radius: [16,16,16,16]
-                    md_bg_color: app.card_color
-                    size_hint_y: None
-                    height: dp(162)
-
-                    MDLabel:
-                        text: "Meta semanal"
-                        font_style: "H6"
-                        bold: True
-                        size_hint_y: None
-                        height: dp(30)
-
-                    MDLabel:
-                        text: root.weekly_goal_text
-                        theme_text_color: "Custom"
-                        text_color: app.muted_color
-                        size_hint_y: None
-                        height: dp(26)
-
-                    MDProgressBar:
-                        value: root.weekly_goal_percent
-                        max: 100
-                        size_hint_y: None
-                        height: dp(6)
-
-                    MDLabel:
-                        text: root.weekly_remaining_text
-                        theme_text_color: "Custom"
-                        text_color: app.muted_color
-                        size_hint_y: None
-                        height: dp(26)
-
-                MDRaisedButton:
-                    text: "¿Me conviene este viaje?"
-                    size_hint_y: None
-                    height: dp(52)
-                    md_bg_color: app.accent_color
-                    on_release: app.go("assistant")
-
-                MDRaisedButton:
-                    text: "+ Nuevo viaje"
-                    size_hint_y: None
-                    height: dp(48)
-                    on_release: app.open_trip_dialog()
-
-                MDRaisedButton:
-                    text: "+ Nuevo gasto"
-                    size_hint_y: None
-                    height: dp(48)
-                    on_release: app.open_expense_dialog()
-
-                MDRaisedButton:
-                    text: "Caja de hoy"
-                    size_hint_y: None
-                    height: dp(48)
-                    on_release: app.go("cash")
-
-                MDRaisedButton:
-                    text: "Ver jornadas"
-                    size_hint_y: None
-                    height: dp(48)
-                    on_release: app.go("sessions")
-
-                MDRaisedButton:
-                    text: "Bienestar y mapa"
-                    size_hint_y: None
-                    height: dp(52)
-                    md_bg_color: app.accent_color
-                    on_release: app.go("wellness_map")
-
-        MDBoxLayout:
-            size_hint_y: None
-            height: dp(60)
-            spacing: dp(2)
-            md_bg_color: app.card_color
-
-            MDFlatButton:
-                text: "Inicio"
-                on_release: app.go("dashboard")
-
-            MDFlatButton:
-                text: "Viajes"
-                on_release: app.go("trips")
-
-            MDFlatButton:
-                text: "Gastos"
-                on_release: app.go("expenses")
-
-            MDFlatButton:
-                text: "Nafta"
-                on_release: app.go("fuel")
-
-            MDFlatButton:
-                text: "Más"
-                on_release: app.go("settings")
+        MainNav:
+            active_screen: "dashboard"
 
 
 <BanknoteTile>:
@@ -426,7 +493,18 @@ ScreenManager:
 
                 MDTextField:
                     id: trip_amount
-                    hint_text: "Ej: 7350"
+                    hint_text: "Ingreso del conductor (ej: 7350)"
+                    helper_text: "El monto que queda para vos, antes de nafta y gastos"
+                    helper_text_mode: "on_focus"
+                    input_filter: "float"
+                    size_hint_y: None
+                    height: dp(58)
+
+                MDTextField:
+                    id: trip_uber_fee
+                    hint_text: "Comisión informada por Uber (opcional)"
+                    helper_text: "Sirve para explicar la facturación; no se descuenta otra vez"
+                    helper_text_mode: "on_focus"
                     input_filter: "float"
                     size_hint_y: None
                     height: dp(58)
@@ -543,7 +621,7 @@ ScreenManager:
                         on_release: app.save_trip_screen()
 
                 MDLabel:
-                    text: "Uber, Mercado Pago y Otro se guardan al tocarlos."
+                    text: "Uber, Mercado Pago y Otro se guardan al tocarlos. La comisión queda separada del ingreso."
                     theme_text_color: "Custom"
                     text_color: app.muted_color
                     size_hint_y: None
@@ -565,20 +643,36 @@ ScreenManager:
         md_bg_color: app.bg_color
 
         MDTopAppBar:
-            title: "Viajes"
-            left_action_items: [["arrow-left", lambda x: app.go("dashboard")]]
+            title: "Historial"
             md_bg_color: app.bg_color
 
-        MDRaisedButton:
-            text: "+ Cargar viaje"
+        MDBoxLayout:
             size_hint_y: None
-            height: dp(48)
-            on_release: app.open_trip_dialog()
+            height: dp(58)
+            padding: [dp(12), dp(6), dp(12), dp(6)]
+            spacing: dp(6)
+            MDFlatButton:
+                text: "VIAJES"
+                theme_text_color: "Custom"
+                text_color: app.accent_color
+            MDFlatButton:
+                text: "GASTOS"
+                on_release: app.go("expenses")
+            MDFlatButton:
+                text: "JORNADAS"
+                on_release: app.go("sessions")
+            MDRaisedButton:
+                text: "+ VIAJE"
+                md_bg_color: app.accent_color
+                on_release: app.open_trip_dialog()
 
         ScrollView:
             MDList:
                 id: trips_list
                 adaptive_height: True
+
+        MainNav:
+            active_screen: "trips"
 
 
 <ExpensesScreen>:
@@ -589,7 +683,7 @@ ScreenManager:
 
         MDTopAppBar:
             title: "Gastos"
-            left_action_items: [["arrow-left", lambda x: app.go("dashboard")]]
+            left_action_items: [["arrow-left", lambda x: app.go("trips")]]
             md_bg_color: app.bg_color
 
         MDRaisedButton:
@@ -612,7 +706,7 @@ ScreenManager:
 
         MDTopAppBar:
             title: "Combustible"
-            left_action_items: [["arrow-left", lambda x: app.go("dashboard")]]
+            left_action_items: [["arrow-left", lambda x: app.go("wellness_map")]]
             md_bg_color: app.bg_color
 
         MDRaisedButton:
@@ -649,8 +743,7 @@ ScreenManager:
         md_bg_color: app.bg_color
 
         MDTopAppBar:
-            title: "Caja de hoy"
-            left_action_items: [["arrow-left", lambda x: app.go("dashboard")]]
+            title: "Jornada"
             md_bg_color: app.bg_color
 
         ScrollView:
@@ -664,11 +757,43 @@ ScreenManager:
                 height: self.minimum_height
 
                 MDLabel:
-                    text: "Cobros por método"
+                    text: "Tu dinero de hoy"
                     font_style: "H5"
                     bold: True
                     size_hint_y: None
                     height: dp(44)
+
+                MDCard:
+                    orientation: "vertical"
+                    padding: dp(18)
+                    spacing: dp(5)
+                    radius: [22,22,22,22]
+                    md_bg_color: app.primary_color
+                    size_hint_y: None
+                    height: dp(150)
+                    MDLabel:
+                        text: "GANANCIA REAL ESTIMADA"
+                        theme_text_color: "Custom"
+                        text_color: app.on_primary_muted_color
+                        font_style: "Caption"
+                    MDLabel:
+                        text: root.profit_text
+                        theme_text_color: "Custom"
+                        text_color: app.on_primary_color
+                        font_style: "H3"
+                        bold: True
+                    MDLabel:
+                        text: root.profit_detail_text
+                        theme_text_color: "Custom"
+                        text_color: app.on_primary_muted_color
+                        font_style: "Caption"
+
+                MDLabel:
+                    text: "Cobros por método"
+                    font_style: "H6"
+                    bold: True
+                    size_hint_y: None
+                    height: dp(36)
 
                 StatCard:
                     MDLabel:
@@ -776,7 +901,7 @@ ScreenManager:
                     height: dp(116)
 
                     MDLabel:
-                        text: "Facturación total del día"
+                        text: "Ingresos registrados del día"
                         font_style: "H6"
                         bold: True
                         size_hint_y: None
@@ -790,12 +915,28 @@ ScreenManager:
                         height: dp(42)
 
                 MDLabel:
-                    text: "Este resumen refleja cobros registrados en viajes. No incluye un fondo inicial de caja ni retiros manuales."
+                    text: "Cobrado indica por dónde entró el dinero. Ganancia real descuenta combustible y gastos; la comisión informada se muestra aparte."
                     theme_text_color: "Custom"
                     text_color: app.muted_color
                     size_hint_y: None
                     text_size: self.width, None
                     height: self.texture_size[1] + dp(20)
+
+                MDRaisedButton:
+                    text: root.session_action_text
+                    size_hint_y: None
+                    height: dp(52)
+                    md_bg_color: app.accent_color
+                    on_release: app.toggle_work_session()
+
+                MDFlatButton:
+                    text: "ACTUALIZAR ODÓMETRO"
+                    size_hint_y: None
+                    height: dp(48)
+                    on_release: app.open_current_odometer_dialog()
+
+        MainNav:
+            active_screen: "cash"
 
 
 <SessionsScreen>:
@@ -806,7 +947,7 @@ ScreenManager:
 
         MDTopAppBar:
             title: "Jornadas"
-            left_action_items: [["arrow-left", lambda x: app.go("dashboard")]]
+            left_action_items: [["arrow-left", lambda x: app.go("trips")]]
             md_bg_color: app.bg_color
 
         MDBoxLayout:
@@ -870,6 +1011,37 @@ ScreenManager:
 
                 MDCard:
                     orientation: "vertical"
+                    padding: dp(18)
+                    spacing: dp(5)
+                    radius: [22,22,22,22]
+                    md_bg_color: root.recommendation_surface_color
+                    size_hint_y: None
+                    height: dp(184)
+                    MDLabel:
+                        text: "DECISIÓN DEL VIAJE"
+                        theme_text_color: "Custom"
+                        text_color: app.on_primary_muted_color
+                        font_style: "Caption"
+                    MDLabel:
+                        text: root.recommendation_text
+                        font_style: "H4"
+                        bold: True
+                        theme_text_color: "Custom"
+                        text_color: app.on_primary_color
+                    MDLabel:
+                        text: root.summary_text
+                        theme_text_color: "Custom"
+                        text_color: app.on_primary_color
+                        bold: True
+                    MDLabel:
+                        text: "Factor decisivo: " + root.reason_text
+                        theme_text_color: "Custom"
+                        text_color: app.on_primary_muted_color
+                        font_style: "Caption"
+                        text_size: self.width, None
+
+                MDCard:
+                    orientation: "vertical"
                     padding: dp(16)
                     spacing: dp(8)
                     radius: [18,18,18,18]
@@ -878,14 +1050,14 @@ ScreenManager:
                     height: dp(392)
 
                     MDLabel:
-                        text: "Flotante sobre Uber"
+                        text: "Flotante compacto sobre Uber"
                         font_style: "H6"
                         bold: True
                         size_hint_y: None
                         height: dp(34)
 
                     MDLabel:
-                        text: "Elegí lectura local o lectura visual con Gemini. Mantené pulsada la burbuja $ para ver el diagnóstico."
+                        text: "Muestra decisión, ganancia, $/km, $/hora y el factor principal sin tapar los controles. Configurá esto con el vehículo detenido."
                         theme_text_color: "Custom"
                         text_color: app.muted_color
                         font_style: "Caption"
@@ -1033,11 +1205,9 @@ ScreenManager:
                     height: dp(260)
 
                     MDLabel:
-                        text: root.recommendation_text
-                        font_style: "H5"
+                        text: "Detalle del cálculo"
+                        font_style: "H6"
                         bold: True
-                        theme_text_color: "Custom"
-                        text_color: root.recommendation_color
                         size_hint_y: None
                         height: dp(40)
 
@@ -1082,16 +1252,126 @@ ScreenManager:
         md_bg_color: app.bg_color
 
         MDTopAppBar:
-            title: "Bienestar y mapa"
-            left_action_items: [["arrow-left", lambda x: app.go("dashboard")]]
+            title: "Vehículo"
             md_bg_color: app.bg_color
 
         ScrollView:
             MDBoxLayout:
                 orientation: "vertical"
-                padding: dp(16)
-                spacing: dp(14)
+                padding: [dp(16), dp(8), dp(16), dp(24)]
+                spacing: dp(12)
                 adaptive_height: True
+
+                MDCard:
+                    orientation: "vertical"
+                    padding: dp(16)
+                    spacing: dp(5)
+                    radius: [22,22,22,22]
+                    md_bg_color: app.primary_color
+                    size_hint_y: None
+                    height: dp(142)
+                    MDLabel:
+                        text: "TU AUTO"
+                        theme_text_color: "Custom"
+                        text_color: app.on_primary_muted_color
+                        font_style: "Caption"
+                    MDLabel:
+                        text: root.vehicle_text
+                        theme_text_color: "Custom"
+                        text_color: app.on_primary_color
+                        font_style: "H5"
+                        bold: True
+                    MDLabel:
+                        text: root.vehicle_cost_text
+                        theme_text_color: "Custom"
+                        text_color: app.on_primary_muted_color
+
+                MDCard:
+                    orientation: "vertical"
+                    padding: dp(16)
+                    spacing: dp(8)
+                    radius: [18,18,18,18]
+                    md_bg_color: app.card_color
+                    size_hint_y: None
+                    height: dp(286)
+                    MDLabel:
+                        text: "¿Cuánto cargar?"
+                        font_style: "H6"
+                        bold: True
+                    MDLabel:
+                        text: "Indicá lo que marca el tablero. La cuenta usa la capacidad y el precio configurados."
+                        theme_text_color: "Custom"
+                        text_color: app.muted_color
+                        font_style: "Caption"
+                    MDTextField:
+                        id: tank_percent
+                        hint_text: "Combustible actual (%)"
+                        input_filter: "float"
+                    MDBoxLayout:
+                        size_hint_y: None
+                        height: dp(44)
+                        spacing: dp(6)
+                        MDFlatButton:
+                            text: "25%"
+                            on_release: app.set_tank_percent(25)
+                        MDFlatButton:
+                            text: "50%"
+                            on_release: app.set_tank_percent(50)
+                        MDFlatButton:
+                            text: "75%"
+                            on_release: app.set_tank_percent(75)
+                    MDRaisedButton:
+                        text: "CALCULAR CARGA"
+                        size_hint_y: None
+                        height: dp(48)
+                        md_bg_color: app.accent_color
+                        on_release: app.calculate_refuel()
+                    MDLabel:
+                        text: root.refuel_result_text
+                        bold: True
+                        size_hint_y: None
+                        height: dp(34)
+
+                MDGridLayout:
+                    cols: 2
+                    spacing: dp(10)
+                    size_hint_y: None
+                    height: dp(108)
+                    MDRaisedButton:
+                        text: "+ CARGA"
+                        on_release: app.open_fuel_dialog()
+                    MDRaisedButton:
+                        text: "VER CARGAS"
+                        on_release: app.go("fuel")
+                    MDFlatButton:
+                        text: "ESTACIONES CERCA"
+                        on_release: app.open_map("estaciones de servicio cercanas")
+                    MDFlatButton:
+                        text: "ÁREA DE DESCANSO"
+                        on_release: app.open_map("área de descanso cercana")
+
+                MDCard:
+                    orientation: "vertical"
+                    padding: dp(16)
+                    spacing: dp(8)
+                    radius: [18,18,18,18]
+                    md_bg_color: app.card_color
+                    size_hint_y: None
+                    height: dp(168)
+                    MDLabel:
+                        text: "Mantenimiento"
+                        font_style: "H6"
+                        bold: True
+                    MDLabel:
+                        text: root.next_maintenance_text
+                        theme_text_color: "Custom"
+                        text_color: app.muted_color
+                        text_size: self.width, None
+                    MDRaisedButton:
+                        text: "ABRIR MANTENIMIENTO"
+                        size_hint_y: None
+                        height: dp(50)
+                        on_release: app.go("maintenance")
 
                 MDCard:
                     orientation: "vertical"
@@ -1100,11 +1380,11 @@ ScreenManager:
                     radius: [18,18,18,18]
                     md_bg_color: app.card_color
                     size_hint_y: None
-                    height: dp(190)
+                    height: dp(194)
 
                     MDLabel:
                         text: root.fatigue_title
-                        font_style: "H5"
+                        font_style: "H6"
                         bold: True
                     MDLabel:
                         text: root.fatigue_message
@@ -1150,39 +1430,56 @@ ScreenManager:
                         md_bg_color: (0.85, 0.35, 0.2, 1)
                         on_release: app.record_fatigue(5)
 
-                MDCard:
-                    orientation: "vertical"
-                    padding: dp(16)
-                    spacing: dp(10)
-                    radius: [18,18,18,18]
-                    md_bg_color: app.card_color
-                    size_hint_y: None
-                    height: dp(236)
+        MainNav:
+            active_screen: "wellness_map"
 
-                    MDLabel:
-                        text: "Mapa rápido"
-                        font_style: "H6"
-                        bold: True
-                    MDLabel:
-                        text: "Abrí el mapa instalado sin cargar un motor pesado dentro de Driver Control. Usalo solamente con el vehículo detenido."
-                        theme_text_color: "Custom"
-                        text_color: app.muted_color
-                    MDRaisedButton:
-                        text: "ESTACIONES DE SERVICIO CERCANAS"
-                        size_hint_y: None
-                        height: dp(54)
-                        on_release: app.open_map("estaciones de servicio cercanas")
-                    MDRaisedButton:
-                        text: "ÁREA DE DESCANSO CERCANA"
-                        size_hint_y: None
-                        height: dp(54)
-                        on_release: app.open_map("área de descanso cercana")
+<MaintenanceScreen>:
+    name: "maintenance"
+    MDBoxLayout:
+        orientation: "vertical"
+        md_bg_color: app.bg_color
 
-                MDFlatButton:
-                    text: "Configuración y objetivos"
-                    size_hint_y: None
-                    height: dp(48)
-                    on_release: app.go("settings")
+        MDTopAppBar:
+            title: "Mantenimiento"
+            left_action_items: [["arrow-left", lambda x: app.go("wellness_map")]]
+            md_bg_color: app.bg_color
+
+        MDCard:
+            orientation: "vertical"
+            padding: dp(16)
+            spacing: dp(5)
+            radius: [0,0,18,18]
+            md_bg_color: app.primary_color
+            size_hint_y: None
+            height: dp(126)
+            MDLabel:
+                text: "PRÓXIMO CONTROL"
+                theme_text_color: "Custom"
+                text_color: app.on_primary_muted_color
+                font_style: "Caption"
+            MDLabel:
+                text: root.next_due_text
+                theme_text_color: "Custom"
+                text_color: app.on_primary_color
+                font_style: "H6"
+                bold: True
+            MDLabel:
+                text: "Registrá aceite, filtros, frenos, cubiertas y reparaciones."
+                theme_text_color: "Custom"
+                text_color: app.on_primary_muted_color
+                font_style: "Caption"
+
+        MDRaisedButton:
+            text: "+ REGISTRAR MANTENIMIENTO"
+            size_hint_y: None
+            height: dp(54)
+            md_bg_color: app.accent_color
+            on_release: app.open_maintenance_dialog()
+
+        ScrollView:
+            MDList:
+                id: maintenance_list
+                adaptive_height: True
 
 <SettingsScreen>:
     name: "settings"
@@ -1191,8 +1488,7 @@ ScreenManager:
         md_bg_color: app.bg_color
 
         MDTopAppBar:
-            title: "Configuración"
-            left_action_items: [["arrow-left", lambda x: app.go("dashboard")]]
+            title: "Ajustes"
             md_bg_color: app.bg_color
 
         ScrollView:
@@ -1201,6 +1497,13 @@ ScreenManager:
                 padding: dp(16)
                 spacing: dp(12)
                 adaptive_height: True
+
+                MDLabel:
+                    text: "Objetivos"
+                    font_style: "H6"
+                    bold: True
+                    size_hint_y: None
+                    height: dp(34)
 
                 MDTextField:
                     id: daily_goal
@@ -1225,6 +1528,13 @@ ScreenManager:
                     id: fuel_price
                     hint_text: "Precio actual de nafta ($/L)"
                     helper_text: "Actualizado automáticamente en cálculos"
+                    helper_text_mode: "on_focus"
+                    input_filter: "float"
+
+                MDTextField:
+                    id: tank_capacity
+                    hint_text: "Capacidad del tanque (L)"
+                    helper_text: "Se usa solamente para calcular cuánto cargar"
                     helper_text_mode: "on_focus"
                     input_filter: "float"
 
@@ -1270,6 +1580,37 @@ ScreenManager:
                     helper_text: "No es la clave de OpenAI"
                     helper_text_mode: "on_focus"
 
+                MDLabel:
+                    text: "Apariencia y permisos"
+                    font_style: "H6"
+                    bold: True
+                    size_hint_y: None
+                    height: dp(34)
+
+                MDFlatButton:
+                    text: root.theme_action_text
+                    size_hint_y: None
+                    height: dp(48)
+                    on_release: app.toggle_theme()
+
+                MDGridLayout:
+                    cols: 2
+                    spacing: dp(8)
+                    size_hint_y: None
+                    height: dp(104)
+                    MDFlatButton:
+                        text: "PERMISO FLOTANTE"
+                        on_release: app.request_uber_overlay_access()
+                    MDFlatButton:
+                        text: "LECTURA DE UBER"
+                        on_release: app.request_uber_accessibility()
+                    MDFlatButton:
+                        text: "GEMINI VISUAL"
+                        on_release: app.request_gemini_visual_accessibility()
+                    MDFlatButton:
+                        text: "DETENER FLOTANTE"
+                        on_release: app.stop_driver_overlay()
+
                 MDRaisedButton:
                     text: "Guardar configuración"
                     on_release: app.save_settings()
@@ -1282,18 +1623,88 @@ ScreenManager:
                 Widget:
                     size_hint_y: None
                     height: dp(40)
+
+        MainNav:
+            active_screen: "settings"
 """
+
+
+class MainNav(MDBoxLayout):
+    active_screen = StringProperty("")
+
+
+class WeeklyBarChart(Widget):
+    """Gráfico liviano de siete barras, apto para teléfonos económicos."""
+
+    values = ListProperty([0.0] * 7)
+    selected_index = NumericProperty(6)
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.bind(
+            pos=self._schedule_redraw,
+            size=self._schedule_redraw,
+            values=self._schedule_redraw,
+            selected_index=self._schedule_redraw,
+        )
+        Clock.schedule_once(self._redraw, 0)
+
+    def _schedule_redraw(self, *_args):
+        Clock.schedule_once(self._redraw, 0)
+
+    def _redraw(self, *_args):
+        if self.width <= 0 or self.height <= 0:
+            return
+        values = [max(0.0, float(value or 0.0)) for value in self.values[:7]]
+        values += [0.0] * (7 - len(values))
+        peak = max(max(values), 1.0)
+        gap = dp(8)
+        bar_width = max(dp(8), (self.width - gap * 8) / 7.0)
+        usable_height = max(dp(20), self.height - dp(12))
+        app = MDApp.get_running_app()
+        normal = getattr(app, "chart_color", (0.34, 0.68, 0.82, 1))
+        selected = getattr(app, "accent_color", (0.0, 0.62, 0.86, 1))
+        self.canvas.clear()
+        with self.canvas:
+            for index, value in enumerate(values):
+                height = max(dp(8), usable_height * value / peak)
+                rgba = selected if index == int(self.selected_index) else normal
+                Color(*rgba)
+                RoundedRectangle(
+                    pos=(self.x + gap + index * (bar_width + gap), self.y),
+                    size=(bar_width, height),
+                    radius=[dp(5)],
+                )
+
+    def on_touch_down(self, touch):
+        if not self.collide_point(*touch.pos):
+            return super().on_touch_down(touch)
+        relative_x = max(0.0, min(touch.x - self.x, self.width - 1))
+        index = min(6, int(relative_x / max(self.width / 7.0, 1.0)))
+        app = MDApp.get_running_app()
+        if app is not None:
+            app.select_chart_day(index)
+        return True
 
 
 class DashboardScreen(Screen):
     current_datetime_text = StringProperty("")
+    period_mode = StringProperty("today")
+    period_label = StringProperty("Hoy")
     session_status_text = StringProperty("Jornada cerrada")
     session_time_text = StringProperty("Abrí una jornada para empezar")
     session_action_text = StringProperty("ABRIR JORNADA")
     fuel_used_text = StringProperty("Consumido: 0,00 L · $0")
     fuel_reserve_text = StringProperty("A reponer: $0")
     revenue_text = StringProperty("$0")
+    income_text = StringProperty("$0")
+    commission_text = StringProperty("$0")
+    commission_help_text = StringProperty("Cargá la comisión solo si Uber te la informa.")
+    fuel_cost_text = StringProperty("$0")
+    expenses_text = StringProperty("$0")
     net_text = StringProperty("$0")
+    net_explanation_text = StringProperty("Ingresos menos combustible y otros gastos")
+    efficiency_text = StringProperty("$0 por hora · $0 por km")
     km_text = StringProperty("0 km")
     trips_text = StringProperty("0")
     goal_text = StringProperty("$0 / $0")
@@ -1302,6 +1713,9 @@ class DashboardScreen(Screen):
     weekly_goal_text = StringProperty("$0 / $0")
     weekly_goal_percent = NumericProperty(0)
     weekly_remaining_text = StringProperty("Faltan $0")
+    week_values = ListProperty([0.0] * 7)
+    chart_selected_index = NumericProperty(6)
+    chart_detail_text = StringProperty("Tocá una barra para ver el día")
 
 
 class BanknoteTile(MDCard):
@@ -1354,6 +1768,9 @@ class CashScreen(Screen):
     change_text = StringProperty("Vuelto entregado: $0")
     cash_kept_text = StringProperty("Efectivo neto por viajes: $0")
     total_text = StringProperty("$0")
+    profit_text = StringProperty("$0")
+    profit_detail_text = StringProperty("Ingresos menos combustible y gastos")
+    session_action_text = StringProperty("ABRIR JORNADA")
 
 
 class SessionsScreen(Screen):
@@ -1367,11 +1784,16 @@ class TripAssistantScreen(Screen):
     metrics_text = StringProperty("Tarifa · tiempo · kilómetros · combustible")
     reason_text = StringProperty("La app comparará el viaje con tus objetivos.")
     recommendation_color = ListProperty([0.10, 0.55, 0.25, 1])
+    recommendation_surface_color = ListProperty([0.08, 0.16, 0.26, 1])
     ai_status_text = StringProperty("Configurá el servidor para activar la IA.")
     ai_response_text = StringProperty("La IA explicará la decisión sin aceptar el viaje por vos.")
 
 
 class WellnessMapScreen(Screen):
+    vehicle_text = StringProperty(DEFAULT_VEHICLE)
+    vehicle_cost_text = StringProperty("8,0 L/100 km · $0 por litro")
+    refuel_result_text = StringProperty("Elegí un nivel para calcular")
+    next_maintenance_text = StringProperty("Todavía no hay controles registrados.")
     fatigue_title = StringProperty("Sin jornada activa")
     fatigue_message = StringProperty("Abrí una jornada para activar el acompañamiento.")
     fatigue_color = ListProperty([0.34, 0.40, 0.46, 1])
@@ -1381,9 +1803,13 @@ class WellnessMapScreen(Screen):
     break_action_color = ListProperty([0.00, 0.62, 0.86, 1])
 
 
+class MaintenanceScreen(Screen):
+    next_due_text = StringProperty("Sin próximos controles")
+
+
 
 class SettingsScreen(Screen):
-    pass
+    theme_action_text = StringProperty("ACTIVAR MODO OSCURO")
 
 
 class ValidationError(ValueError):
@@ -1391,10 +1817,14 @@ class ValidationError(ValueError):
 
 
 class DriverControlApp(MDApp):
-    bg_color = (0.965, 0.98, 0.99, 1)
-    card_color = (1, 1, 1, 1)
-    muted_color = (0.34, 0.40, 0.46, 1)
-    accent_color = (0.00, 0.62, 0.86, 1)
+    bg_color = ListProperty([0.965, 0.976, 0.988, 1])
+    card_color = ListProperty([1, 1, 1, 1])
+    muted_color = ListProperty([0.32, 0.38, 0.45, 1])
+    accent_color = ListProperty([0.02, 0.60, 0.64, 1])
+    primary_color = ListProperty([0.055, 0.12, 0.20, 1])
+    on_primary_color = ListProperty([1, 1, 1, 1])
+    on_primary_muted_color = ListProperty([0.76, 0.84, 0.90, 1])
+    chart_color = ListProperty([0.44, 0.75, 0.77, 1])
 
     def build(self):
         self.theme_cls.theme_style = "Light"
@@ -1410,6 +1840,7 @@ class DriverControlApp(MDApp):
         self.conn.execute("PRAGMA synchronous = NORMAL")
 
         self._create_or_migrate_db()
+        self._apply_theme(self.setting("dark_mode", "0") == "1")
         return Builder.load_string(KV)
 
     def on_start(self):
@@ -1497,6 +1928,7 @@ class DriverControlApp(MDApp):
                     opened_at TEXT NOT NULL,
                     closed_at TEXT,
                     opening_odometer REAL NOT NULL CHECK(opening_odometer >= 0),
+                    current_odometer REAL,
                     closing_odometer REAL,
                     opening_cash REAL NOT NULL DEFAULT 0 CHECK(opening_cash >= 0),
                     closing_cash REAL,
@@ -1536,14 +1968,34 @@ class DriverControlApp(MDApp):
                 )
                 """
             )
+            self.conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS maintenance_records(
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    created_at TEXT NOT NULL,
+                    category TEXT NOT NULL,
+                    description TEXT,
+                    odometer REAL NOT NULL DEFAULT 0 CHECK(odometer >= 0),
+                    amount REAL NOT NULL DEFAULT 0 CHECK(amount >= 0),
+                    next_due_date TEXT,
+                    next_due_odometer REAL,
+                    payment TEXT,
+                    session_id INTEGER,
+                    expense_id INTEGER,
+                    status TEXT NOT NULL DEFAULT 'COMPLETED'
+                )
+                """
+            )
 
             self._ensure_column("trips", "cash_received", "REAL")
             self._ensure_column("trips", "change_given", "REAL")
             self._ensure_column("trips", "session_id", "INTEGER")
+            self._ensure_column("trips", "uber_fee", "REAL NOT NULL DEFAULT 0")
             self._ensure_column("expenses", "session_id", "INTEGER")
             self._ensure_column("expenses", "payment", "TEXT")
             self._ensure_column("fuel", "session_id", "INTEGER")
             self._ensure_column("fuel", "payment", "TEXT")
+            self._ensure_column("work_sessions", "current_odometer", "REAL")
 
             self.conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_trips_created_at ON trips(created_at)"
@@ -1559,6 +2011,12 @@ class DriverControlApp(MDApp):
             )
             self.conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_fatigue_session ON fatigue_checkins(session_id)"
+            )
+            self.conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_maintenance_created_at ON maintenance_records(created_at)"
+            )
+            self.conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_maintenance_due_km ON maintenance_records(next_due_odometer)"
             )
 
             self.conn.execute(
@@ -1632,6 +2090,13 @@ class DriverControlApp(MDApp):
                 (str(DEFAULT_ASSISTANT_MAX_PICKUP_KM),),
             )
             self.conn.execute(
+                "INSERT OR IGNORE INTO settings(key,value) VALUES('tank_capacity',?)",
+                (str(DEFAULT_TANK_CAPACITY),),
+            )
+            self.conn.execute(
+                "INSERT OR IGNORE INTO settings(key,value) VALUES('dark_mode','0')"
+            )
+            self.conn.execute(
                 "INSERT OR IGNORE INTO settings(key,value) VALUES('ai_server_url',?)",
                 (DEFAULT_AI_SERVER_URL,),
             )
@@ -1653,6 +2118,10 @@ class DriverControlApp(MDApp):
             return
         self.root.current = name
         self.refresh_all()
+
+    def go_jornada(self):
+        """La pestaña Jornada abre la caja activa; el historial queda a un toque."""
+        self.go("cash")
 
     @staticmethod
     def _duration_text(seconds: float) -> str:
@@ -1831,6 +2300,41 @@ class DriverControlApp(MDApp):
             LOGGER.warning("Invalid numeric setting %s=%r. Using default.", key, raw)
             return default
 
+    def _apply_theme(self, dark: bool):
+        self.theme_cls.theme_style = "Dark" if dark else "Light"
+        if dark:
+            self.bg_color = [0.035, 0.055, 0.078, 1]
+            self.card_color = [0.075, 0.105, 0.14, 1]
+            self.muted_color = [0.65, 0.71, 0.77, 1]
+            self.accent_color = [0.18, 0.82, 0.73, 1]
+            self.primary_color = [0.03, 0.20, 0.22, 1]
+            self.on_primary_muted_color = [0.72, 0.90, 0.88, 1]
+            self.chart_color = [0.16, 0.45, 0.48, 1]
+        else:
+            self.bg_color = [0.965, 0.976, 0.988, 1]
+            self.card_color = [1, 1, 1, 1]
+            self.muted_color = [0.32, 0.38, 0.45, 1]
+            self.accent_color = [0.02, 0.60, 0.64, 1]
+            self.primary_color = [0.055, 0.12, 0.20, 1]
+            self.on_primary_muted_color = [0.76, 0.84, 0.90, 1]
+            self.chart_color = [0.44, 0.75, 0.77, 1]
+        self.on_primary_color = [1, 1, 1, 1]
+        if getattr(self, "root", None):
+            settings = self.root.get_screen("settings")
+            settings.theme_action_text = (
+                "ACTIVAR MODO CLARO" if dark else "ACTIVAR MODO OSCURO"
+            )
+
+    def toggle_theme(self):
+        dark = self.setting("dark_mode", "0") != "1"
+        with self.transaction():
+            self.conn.execute(
+                "INSERT OR REPLACE INTO settings(key,value) VALUES('dark_mode',?)",
+                ("1" if dark else "0",),
+            )
+        self._apply_theme(dark)
+        self.refresh_all()
+
     def money(self, value: float) -> str:
         return f"${float(value):,.0f}".replace(",", ".")
 
@@ -1943,10 +2447,11 @@ class DriverControlApp(MDApp):
                 self.conn.execute(
                     """
                     INSERT INTO work_sessions(
-                        opened_at, opening_odometer, opening_cash, status
-                    ) VALUES(?,?,?,'OPEN')
+                        opened_at, opening_odometer, current_odometer,
+                        opening_cash, status
+                    ) VALUES(?,?,?,?,'OPEN')
                     """,
-                    (now, odometer, opening_cash),
+                    (now, odometer, odometer, opening_cash),
                 )
             dialog.dismiss()
             self.refresh_all()
@@ -1964,6 +2469,47 @@ class DriverControlApp(MDApp):
         ]
         self.input_dialog("Cerrar jornada", fields, self.save_close_session)
 
+    def open_current_odometer_dialog(self):
+        session = self._active_session()
+        if session is None:
+            self.show_message("Odómetro", "Abrí una jornada para actualizar los kilómetros.")
+            return
+        self.input_dialog(
+            "Actualizar kilómetros",
+            [("odometer", "Odómetro actual", True)],
+            self.save_current_odometer,
+        )
+
+    def save_current_odometer(self, dialog, widgets):
+        try:
+            session = self._active_session()
+            if session is None:
+                raise ValidationError("No hay una jornada abierta.")
+            odometer = self._parse_non_negative_float(
+                widgets["odometer"].text,
+                "Odómetro actual",
+            )
+            minimum = max(
+                float(session["opening_odometer"] or 0.0),
+                float(session["current_odometer"] or 0.0),
+            )
+            if odometer < minimum:
+                raise ValidationError(
+                    f"El odómetro no puede bajar de {minimum:.0f} km."
+                )
+            with self.transaction():
+                self.conn.execute(
+                    "UPDATE work_sessions SET current_odometer=? WHERE id=?",
+                    (odometer, int(session["id"])),
+                )
+            dialog.dismiss()
+            self.refresh_all()
+        except ValidationError as exc:
+            self.show_message("Revisá el odómetro", str(exc))
+        except Exception:
+            LOGGER.exception("Could not update current odometer")
+            self.show_message("Error", "No se pudo actualizar el odómetro.")
+
     def _session_metrics(self, session_id: int, closing_odometer=None):
         session = self.conn.execute(
             "SELECT * FROM work_sessions WHERE id=?", (session_id,)
@@ -1974,6 +2520,7 @@ class DriverControlApp(MDApp):
         trip = self.conn.execute(
             """
             SELECT COALESCE(SUM(amount),0) revenue,
+                   COALESCE(SUM(uber_fee),0) uber_fee,
                    COALESCE(SUM(km),0) trip_km,
                    COUNT(*) trips,
                    COALESCE(SUM(CASE WHEN payment=? THEN amount ELSE 0 END),0) cash_sales
@@ -1984,7 +2531,7 @@ class DriverControlApp(MDApp):
         exp = self.conn.execute(
             """
             SELECT COALESCE(SUM(CASE WHEN lower(category)!='combustible' THEN amount ELSE 0 END),0) operating,
-                   COALESCE(SUM(CASE WHEN payment=? AND lower(category)!='combustible' THEN amount ELSE 0 END),0) cash_paid
+                   COALESCE(SUM(CASE WHEN payment=? THEN amount ELSE 0 END),0) cash_paid
             FROM expenses WHERE session_id=?
             """,
             (PAYMENT_CASH, session_id),
@@ -1997,6 +2544,8 @@ class DriverControlApp(MDApp):
         end_odo = closing_odometer
         if end_odo is None:
             end_odo = session["closing_odometer"]
+        if end_odo is None:
+            end_odo = session["current_odometer"]
         if end_odo is not None:
             worked_km = max(float(end_odo) - float(session["opening_odometer"]), 0.0)
         else:
@@ -2008,6 +2557,7 @@ class DriverControlApp(MDApp):
         fuel_cost = fuel_liters * fuel_price
         operating_expenses = float(exp["operating"] or 0.0)
         revenue = float(trip["revenue"] or 0.0)
+        uber_fee = float(trip["uber_fee"] or 0.0)
         net = revenue - operating_expenses - fuel_cost
         cash_expected = (
             float(session["opening_cash"] or 0.0)
@@ -2016,6 +2566,8 @@ class DriverControlApp(MDApp):
         )
         return {
             "revenue": revenue,
+            "uber_fee": uber_fee,
+            "known_billing": revenue + uber_fee,
             "trips": int(trip["trips"] or 0),
             "worked_km": worked_km,
             "operating_expenses": operating_expenses,
@@ -2052,11 +2604,11 @@ class DriverControlApp(MDApp):
                     """
                     UPDATE work_sessions
                     SET closed_at=?, closing_odometer=?, closing_cash=?,
-                        cash_expected=?, cash_difference=?, status='CLOSED'
+                        current_odometer=?, cash_expected=?, cash_difference=?, status='CLOSED'
                     WHERE id=?
                     """,
                     (
-                        now, closing_odometer, closing_cash,
+                        now, closing_odometer, closing_cash, closing_odometer,
                         metrics["cash_expected"], difference, session["id"],
                     ),
                 )
@@ -2066,13 +2618,15 @@ class DriverControlApp(MDApp):
             self.show_message(
                 "Jornada cerrada",
                 "\n".join([
-                    f"Facturación: {self.money(metrics['revenue'])}",
+                    f"Ingresos registrados: {self.money(metrics['revenue'])}",
+                    f"Comisión Uber informada: {self.money(metrics['uber_fee'])}",
+                    f"Facturación conocida: {self.money(metrics['known_billing'])}",
                     f"Km trabajados: {metrics['worked_km']:.1f} km",
                     f"Nafta consumida: {metrics['fuel_liters']:.2f} L",
                     f"A reponer en nafta: {self.money(metrics['fuel_cost'])}",
                     f"Nafta cargada: {metrics['fuel_loaded_liters']:.2f} L · {self.money(metrics['fuel_loaded_amount'])}",
                     f"Otros gastos: {self.money(metrics['operating_expenses'])}",
-                    f"Ganancia limpia disponible: {self.money(metrics['net'])}",
+                    f"Ganancia real estimada: {self.money(metrics['net'])}",
                     f"Caja esperada: {self.money(metrics['cash_expected'])}",
                     f"Caja contada: {self.money(closing_cash)}",
                     (
@@ -2439,23 +2993,49 @@ class DriverControlApp(MDApp):
                 fare, pickup_min, pickup_km, trip_min, trip_km, screen.destination_rating
             )
             self.last_assistant_result = result
-            screen.recommendation_text = f"{result['recommendation']} · {result['score']:.0f}/100"
+            visible_verdict = {
+                "EXCELENTE": "SÍ, EXCELENTE",
+                "CONVIENE": "SÍ, CONVIENE",
+                "DUDOSO": "REVISÁ",
+                "NO CONVIENE": "NO CONVIENE",
+            }.get(result["recommendation"], result["recommendation"])
+            screen.recommendation_text = f"{visible_verdict} · {result['score']:.0f}/100"
             screen.recommendation_color = result["color"]
+            if result["recommendation"] in ("EXCELENTE", "CONVIENE"):
+                screen.recommendation_surface_color = [0.02, 0.32, 0.23, 1]
+            elif result["recommendation"] == "DUDOSO":
+                screen.recommendation_surface_color = [0.42, 0.26, 0.03, 1]
+            else:
+                screen.recommendation_surface_color = [0.40, 0.08, 0.10, 1]
             screen.summary_text = (
-                f"Neto est.: {self.money(result['net_est'])} · {result['total_min']:.0f} min · {result['total_km']:.1f} km"
+                f"Deja {self.money(result['net_est'])} · {self.money(result['per_km_est'])}/km"
             )
             screen.metrics_text = (
                 f"$/hora: {self.money(result['hourly_est'])}/h\n"
                 f"$/km: {self.money(result['per_km_est'])}/km\n"
                 f"Nafta: {result['fuel_liters']:.2f} L · {self.money(result['fuel_cost'])}"
             )
-            screen.reason_text = " · ".join(result["reasons"][:4])
+            screen.reason_text = self._decisive_trip_reason(result)
             self._show_assistant_result_dialog(result)
         except ValidationError as exc:
             self.show_message("Revisá el viaje", str(exc))
         except Exception:
             LOGGER.exception("Could not analyze trip offer")
             self.show_message("Error", "No se pudo analizar el viaje.")
+
+    def _decisive_trip_reason(self, result) -> str:
+        min_hourly = self._setting_float("assistant_min_hourly", DEFAULT_ASSISTANT_MIN_HOURLY)
+        min_per_km = self._setting_float("assistant_min_per_km", DEFAULT_ASSISTANT_MIN_PER_KM)
+        max_pickup = self._setting_float("assistant_max_pickup_km", DEFAULT_ASSISTANT_MAX_PICKUP_KM)
+        if result["per_km_est"] < min_per_km:
+            return f"deja {self.money(result['per_km_est'])}/km y tu mínimo es {self.money(min_per_km)}/km"
+        if result["hourly_est"] < min_hourly:
+            return f"deja {self.money(result['hourly_est'])}/h y tu mínimo es {self.money(min_hourly)}/h"
+        if result["pickup_km"] > max_pickup:
+            return f"el acercamiento es de {result['pickup_km']:.1f} km; tu máximo es {max_pickup:.1f} km"
+        if result["destination"] == "Mala":
+            return "el destino fue marcado como poco conveniente"
+        return f"supera tus mínimos de hora y kilómetro; combustible {self.money(result['fuel_cost'])}"
 
     def analyze_trip_with_ai(self):
         """Consulta el servidor seguro sin exponer la clave de OpenAI en el APK."""
@@ -2695,7 +3275,7 @@ class DriverControlApp(MDApp):
             LOGGER.exception("Could not save trip assessment")
             self.show_message("Error", "No se pudo guardar la evaluación.")
 
-    def refresh_all(self):
+    def _refresh_all_legacy(self):
         now = datetime.now()
         today = now.strftime(DATE_FORMAT)
         monday = now.date() - timedelta(days=now.weekday())
@@ -2828,6 +3408,356 @@ class DriverControlApp(MDApp):
             "ai_access_token", DEFAULT_AI_ACCESS_TOKEN
         )
 
+    def _range_metrics(self, date_texts):
+        """Calcula una sola verdad financiera para Inicio, Jornada y Excel."""
+        dates = list(dict.fromkeys(date_texts))
+        if not dates:
+            return {
+                "income": 0.0, "uber_fee": 0.0, "expenses": 0.0,
+                "km": 0.0, "fuel_liters": 0.0, "fuel_cost": 0.0,
+                "profit": 0.0, "trips": 0, "worked_minutes": 0.0,
+            }
+        placeholders = ",".join("?" for _ in dates)
+        trip = self.conn.execute(
+            f"""
+            SELECT COALESCE(SUM(amount),0) income,
+                   COALESCE(SUM(uber_fee),0) uber_fee,
+                   COALESCE(SUM(km),0) trip_km,
+                   COUNT(*) trips
+            FROM trips
+            WHERE substr(created_at,1,10) IN ({placeholders})
+            """,
+            dates,
+        ).fetchone()
+        expense = self.conn.execute(
+            f"""
+            SELECT COALESCE(SUM(amount),0) expenses
+            FROM expenses
+            WHERE substr(created_at,1,10) IN ({placeholders})
+              AND lower(category)!='combustible'
+            """,
+            dates,
+        ).fetchone()
+        sessions = self.conn.execute(
+            f"""
+            SELECT * FROM work_sessions
+            WHERE substr(opened_at,1,10) IN ({placeholders})
+            ORDER BY id
+            """,
+            dates,
+        ).fetchall()
+
+        worked_km = 0.0
+        worked_seconds = 0.0
+        now = datetime.now()
+        for session in sessions:
+            session_id = int(session["id"])
+            if session["closing_odometer"] is not None:
+                worked_km += max(
+                    float(session["closing_odometer"])
+                    - float(session["opening_odometer"] or 0.0),
+                    0.0,
+                )
+            elif session["status"] == "OPEN":
+                current_odometer = session["current_odometer"]
+                if current_odometer is not None:
+                    worked_km += max(
+                        float(current_odometer) - float(session["opening_odometer"] or 0.0),
+                        0.0,
+                    )
+                else:
+                    session_trip_km = self.conn.execute(
+                        "SELECT COALESCE(SUM(km),0) v FROM trips WHERE session_id=?",
+                        (session_id,),
+                    ).fetchone()["v"]
+                    worked_km += float(session_trip_km or 0.0)
+            try:
+                opened = datetime.strptime(session["opened_at"], DATETIME_FORMAT)
+                closed = (
+                    datetime.strptime(session["closed_at"], DATETIME_FORMAT)
+                    if session["closed_at"] else now
+                )
+                elapsed = max(0.0, (closed - opened).total_seconds())
+                breaks = self.conn.execute(
+                    "SELECT started_at,ended_at FROM driver_breaks WHERE session_id=?",
+                    (session_id,),
+                ).fetchall()
+                break_seconds = 0.0
+                for pause in breaks:
+                    started = datetime.strptime(pause["started_at"], DATETIME_FORMAT)
+                    ended = (
+                        datetime.strptime(pause["ended_at"], DATETIME_FORMAT)
+                        if pause["ended_at"] else now
+                    )
+                    break_seconds += max(0.0, (ended - started).total_seconds())
+                worked_seconds += max(0.0, elapsed - break_seconds)
+            except (TypeError, ValueError):
+                LOGGER.warning("Could not calculate duration for session %s", session_id)
+
+        # Viajes antiguos sin jornada conservan sus kilómetros cargados.
+        orphan_km = self.conn.execute(
+            f"""
+            SELECT COALESCE(SUM(km),0) v FROM trips
+            WHERE session_id IS NULL
+              AND substr(created_at,1,10) IN ({placeholders})
+            """,
+            dates,
+        ).fetchone()["v"]
+        worked_km += float(orphan_km or 0.0)
+
+        income = float(trip["income"] or 0.0)
+        uber_fee = float(trip["uber_fee"] or 0.0)
+        expenses = float(expense["expenses"] or 0.0)
+        consumption = self._setting_float("fuel_consumption", DEFAULT_FUEL_CONSUMPTION)
+        fuel_price = self._setting_float("fuel_price", DEFAULT_FUEL_PRICE)
+        fuel_liters = worked_km * consumption / 100.0
+        fuel_cost = fuel_liters * fuel_price
+        return {
+            "income": income,
+            "uber_fee": uber_fee,
+            "known_billing": income + uber_fee,
+            "expenses": expenses,
+            "km": worked_km,
+            "fuel_liters": fuel_liters,
+            "fuel_cost": fuel_cost,
+            "profit": income - expenses - fuel_cost,
+            "trips": int(trip["trips"] or 0),
+            "worked_minutes": worked_seconds / 60.0,
+        }
+
+    def set_dashboard_period(self, mode: str):
+        if mode not in ("today", "week"):
+            return
+        dashboard = self.root.get_screen("dashboard")
+        dashboard.period_mode = mode
+        self.refresh_all()
+
+    def select_chart_day(self, index: int):
+        dashboard = self.root.get_screen("dashboard")
+        dashboard.chart_selected_index = max(0, min(6, int(index)))
+        self._refresh_chart_detail()
+
+    def _refresh_chart_detail(self):
+        dashboard = self.root.get_screen("dashboard")
+        monday = datetime.now().date() - timedelta(days=datetime.now().weekday())
+        index = max(0, min(6, int(dashboard.chart_selected_index)))
+        selected = monday + timedelta(days=index)
+        metrics = self._range_metrics([selected.strftime(DATE_FORMAT)])
+        dashboard.chart_detail_text = (
+            f"{selected.strftime('%d/%m')} · Ingresos {self.money(metrics['income'])} · "
+            f"Ganancia {self.money(metrics['profit'])}"
+        )
+
+    def _income_values_for_dates(self, date_texts):
+        dates = list(date_texts)
+        if not dates:
+            return []
+        placeholders = ",".join("?" for _ in dates)
+        rows = self.conn.execute(
+            f"""
+            SELECT substr(created_at,1,10) date_key, COALESCE(SUM(amount),0) income
+            FROM trips
+            WHERE substr(created_at,1,10) IN ({placeholders})
+            GROUP BY substr(created_at,1,10)
+            """,
+            dates,
+        ).fetchall()
+        by_date = {str(row["date_key"]): float(row["income"] or 0.0) for row in rows}
+        return [by_date.get(date_text, 0.0) for date_text in dates]
+
+    def _current_odometer(self) -> float:
+        values = []
+        row = self.conn.execute(
+            "SELECT MAX(odometer) v FROM fuel WHERE odometer>0"
+        ).fetchone()
+        if row and row["v"] is not None:
+            values.append(float(row["v"]))
+        rows = self.conn.execute(
+            "SELECT opening_odometer,current_odometer,closing_odometer FROM work_sessions"
+        ).fetchall()
+        for item in rows:
+            values.append(float(item["opening_odometer"] or 0.0))
+            if item["current_odometer"] is not None:
+                values.append(float(item["current_odometer"]))
+            if item["closing_odometer"] is not None:
+                values.append(float(item["closing_odometer"]))
+        return max(values or [0.0])
+
+    def _maintenance_status_text(self) -> str:
+        rows = self.conn.execute(
+            """
+            SELECT category,next_due_date,next_due_odometer
+            FROM maintenance_records
+            WHERE COALESCE(next_due_date,'')!='' OR COALESCE(next_due_odometer,0)>0
+            ORDER BY id DESC LIMIT 30
+            """
+        ).fetchall()
+        if not rows:
+            return "Todavía no hay próximos controles registrados."
+        odometer = self._current_odometer()
+        best = None
+        for row in rows:
+            due_km = float(row["next_due_odometer"] or 0.0)
+            distance = due_km - odometer if due_km > 0 else float("inf")
+            candidate = (distance, row)
+            if best is None or candidate[0] < best[0]:
+                best = candidate
+        distance, row = best
+        details = []
+        if row["next_due_odometer"]:
+            if distance <= 0:
+                details.append(f"vencido por {abs(distance):.0f} km")
+            else:
+                details.append(f"faltan {distance:.0f} km")
+        if row["next_due_date"]:
+            details.append(str(row["next_due_date"]))
+        return f"{row['category']}: " + " · ".join(details)
+
+    def refresh_all(self):
+        now = datetime.now()
+        today = now.strftime(DATE_FORMAT)
+        monday = now.date() - timedelta(days=now.weekday())
+        week_dates = [
+            (monday + timedelta(days=index)).strftime(DATE_FORMAT)
+            for index in range(7)
+        ]
+
+        dashboard = self.root.get_screen("dashboard")
+        session = self._active_session()
+        selected_dates = [today] if dashboard.period_mode == "today" else week_dates
+        metrics = self._range_metrics(selected_dates)
+        daily_metrics = self._range_metrics([today])
+        weekly_metrics = self._range_metrics(week_dates)
+        period_goal = self._setting_float(
+            "daily_goal" if dashboard.period_mode == "today" else "weekly_goal",
+            DEFAULT_DAILY_GOAL if dashboard.period_mode == "today" else DEFAULT_WEEKLY_GOAL,
+        )
+
+        dashboard.period_label = "Hoy" if dashboard.period_mode == "today" else "7 días"
+        dashboard.income_text = self.money(metrics["income"])
+        dashboard.revenue_text = self.money(metrics["known_billing"])
+        dashboard.commission_text = self.money(metrics["uber_fee"])
+        dashboard.commission_help_text = (
+            "La comisión informada explica la facturación conocida y no se descuenta dos veces."
+            if metrics["uber_fee"] > 0 else
+            "Comisión no informada: el ingreso registrado se conserva sin inventar descuentos."
+        )
+        dashboard.fuel_cost_text = self.money(metrics["fuel_cost"])
+        dashboard.expenses_text = self.money(metrics["expenses"])
+        dashboard.net_text = self.money(metrics["profit"])
+        dashboard.net_explanation_text = (
+            f"{self.money(metrics['income'])} ingresos − {self.money(metrics['fuel_cost'])} nafta "
+            f"− {self.money(metrics['expenses'])} gastos"
+        )
+        odometer_pending = bool(
+            session is not None
+            and metrics["trips"] > 0
+            and float(session["current_odometer"] or session["opening_odometer"] or 0.0)
+            <= float(session["opening_odometer"] or 0.0)
+        )
+        if odometer_pending:
+            dashboard.net_explanation_text += " · Actualizá el odómetro para incluir nafta"
+        hourly = (
+            metrics["profit"] * 60.0 / metrics["worked_minutes"]
+            if metrics["worked_minutes"] > 0 else 0.0
+        )
+        per_km = metrics["profit"] / metrics["km"] if metrics["km"] > 0 else 0.0
+        dashboard.efficiency_text = (
+            f"{self.money(hourly)}/h · km pendientes del odómetro"
+            if odometer_pending else
+            f"{self.money(hourly)}/h · {self.money(per_km)}/km"
+        )
+        dashboard.km_text = f"{metrics['km']:.1f} km"
+        dashboard.trips_text = str(metrics["trips"])
+        dashboard.fuel_used_text = (
+            f"Consumido: {metrics['fuel_liters']:.2f} L · {self.money(metrics['fuel_cost'])}"
+        )
+        dashboard.fuel_reserve_text = f"A reponer: {self.money(metrics['fuel_cost'])}"
+        dashboard.goal_text = f"{self.money(metrics['income'])} / {self.money(period_goal)}"
+        dashboard.goal_percent = self._percent(metrics["income"], period_goal)
+        remaining = max(period_goal - metrics["income"], 0.0)
+        dashboard.daily_remaining_text = (
+            "Meta alcanzada" if remaining <= 0 else f"Faltan {self.money(remaining)}"
+        )
+        dashboard.weekly_goal_text = (
+            f"{self.money(weekly_metrics['income'])} / "
+            f"{self.money(self._setting_float('weekly_goal', DEFAULT_WEEKLY_GOAL))}"
+        )
+        dashboard.weekly_goal_percent = self._percent(
+            weekly_metrics["income"],
+            self._setting_float("weekly_goal", DEFAULT_WEEKLY_GOAL),
+        )
+        dashboard.week_values = self._income_values_for_dates(week_dates)
+        if not hasattr(self, "_chart_initialized"):
+            dashboard.chart_selected_index = now.weekday()
+            self._chart_initialized = True
+        self._refresh_chart_detail()
+
+        if session is not None:
+            dashboard.session_status_text = "Jornada activa"
+            dashboard.session_action_text = "CERRAR JORNADA"
+        else:
+            dashboard.session_status_text = "Jornada cerrada"
+            dashboard.session_time_text = "Abrí una jornada para empezar"
+            dashboard.session_action_text = "ABRIR JORNADA"
+
+        cash = self.root.get_screen("cash")
+        cash.profit_text = self.money(daily_metrics["profit"])
+        cash.profit_detail_text = (
+            f"{self.money(daily_metrics['income'])} ingresos − "
+            f"{self.money(daily_metrics['fuel_cost'])} nafta − "
+            f"{self.money(daily_metrics['expenses'])} gastos"
+        )
+        cash.session_action_text = (
+            "CERRAR JORNADA" if session is not None else "ABRIR JORNADA"
+        )
+        self._refresh_cash_summary(today)
+
+        vehicle = self.root.get_screen("wellness_map")
+        vehicle.vehicle_text = self.setting("vehicle", DEFAULT_VEHICLE)
+        vehicle.vehicle_cost_text = (
+            f"{self._setting_float('fuel_consumption', DEFAULT_FUEL_CONSUMPTION):.1f} L/100 km · "
+            f"{self.money(self._setting_float('fuel_price', DEFAULT_FUEL_PRICE))} por litro"
+        )
+        maintenance_text = self._maintenance_status_text()
+        vehicle.next_maintenance_text = maintenance_text
+        self.root.get_screen("maintenance").next_due_text = maintenance_text
+
+        self.fill_lists()
+        self.fill_sessions()
+        self.refresh_wellness()
+
+        daily_goal = self._setting_float("daily_goal", DEFAULT_DAILY_GOAL)
+        weekly_goal = self._setting_float("weekly_goal", DEFAULT_WEEKLY_GOAL)
+        settings = self.root.get_screen("settings")
+        settings.ids.daily_goal.text = self._compact_number(daily_goal)
+        settings.ids.weekly_goal.text = self._compact_number(weekly_goal)
+        settings.ids.vehicle.text = self.setting("vehicle", DEFAULT_VEHICLE)
+        settings.ids.fuel_consumption.text = self._compact_number(
+            self._setting_float("fuel_consumption", DEFAULT_FUEL_CONSUMPTION)
+        )
+        settings.ids.fuel_price.text = self._compact_number(
+            self._setting_float("fuel_price", DEFAULT_FUEL_PRICE)
+        )
+        settings.ids.tank_capacity.text = self._compact_number(
+            self._setting_float("tank_capacity", DEFAULT_TANK_CAPACITY)
+        )
+        settings.ids.assistant_min_hourly.text = self._compact_number(
+            self._setting_float("assistant_min_hourly", DEFAULT_ASSISTANT_MIN_HOURLY)
+        )
+        settings.ids.assistant_min_per_km.text = self._compact_number(
+            self._setting_float("assistant_min_per_km", DEFAULT_ASSISTANT_MIN_PER_KM)
+        )
+        settings.ids.assistant_max_pickup_km.text = self._compact_number(
+            self._setting_float("assistant_max_pickup_km", DEFAULT_ASSISTANT_MAX_PICKUP_KM)
+        )
+        settings.ids.ai_server_url.text = self.setting("ai_server_url", DEFAULT_AI_SERVER_URL)
+        settings.ids.ai_access_token.text = self.setting("ai_access_token", DEFAULT_AI_ACCESS_TOKEN)
+        settings.theme_action_text = (
+            "ACTIVAR MODO CLARO" if self.setting("dark_mode", "0") == "1"
+            else "ACTIVAR MODO OSCURO"
+        )
+
     def _refresh_cash_summary(self, date_text: str):
         rows = self.conn.execute(
             """
@@ -2956,14 +3886,16 @@ class DriverControlApp(MDApp):
             lines = [
                 f"Inicio: {session['opened_at']}",
                 f"Cierre: {session['closed_at'] or 'En curso'}",
-                f"Facturación: {self.money(metrics['revenue'])}",
+                f"Ingresos registrados: {self.money(metrics['revenue'])}",
+                f"Comisión Uber informada: {self.money(metrics['uber_fee'])}",
+                f"Facturación conocida: {self.money(metrics['known_billing'])}",
                 f"Viajes: {metrics['trips']}",
                 f"Km trabajados: {metrics['worked_km']:.1f} km",
                 f"Nafta consumida: {metrics['fuel_liters']:.2f} L",
                 f"A reponer: {self.money(metrics['fuel_cost'])}",
                 f"Nafta cargada: {metrics['fuel_loaded_liters']:.2f} L · {self.money(metrics['fuel_loaded_amount'])}",
                 f"Otros gastos: {self.money(metrics['operating_expenses'])}",
-                f"Ganancia neta: {self.money(metrics['net'])}",
+                f"Ganancia real estimada: {self.money(metrics['net'])}",
                 f"Caja esperada: {self.money(metrics['cash_expected'])}",
             ]
             if closing_cash is not None:
@@ -2983,6 +3915,7 @@ class DriverControlApp(MDApp):
         self._fill_trip_list()
         self._fill_expense_list()
         self._fill_fuel_list()
+        self._fill_maintenance_list()
 
     def _fill_trip_list(self):
         target = self.root.get_screen("trips").ids.trips_list
@@ -2991,13 +3924,22 @@ class DriverControlApp(MDApp):
         rows = self.conn.execute(
             """
             SELECT id, created_at, amount, payment, km, duration,
-                   cash_received, change_given
+                   cash_received, change_given, uber_fee
             FROM trips
             ORDER BY id DESC
             LIMIT ?
             """,
             (MAX_HISTORY_ITEMS,),
         ).fetchall()
+
+        if not rows:
+            target.add_widget(
+                TwoLineListItem(
+                    text="Todavía no hay viajes",
+                    secondary_text="Abrí una jornada y cargá tu primer ingreso.",
+                )
+            )
+            return
 
         for row in rows:
             cash_detail = ""
@@ -3008,7 +3950,10 @@ class DriverControlApp(MDApp):
                 )
 
             item = TwoLineListItem(
-                text=f"{self.money(row['amount'])} · {row['payment']}",
+                text=(
+                    f"{self.money(row['amount'])} ingreso · {row['payment']}"
+                    + (f" · Comisión {self.money(row['uber_fee'])}" if row["uber_fee"] else "")
+                ),
                 secondary_text=(
                     f"{row['created_at']} · {row['km']:.1f} km"
                     f" · {row['duration']} min{cash_detail}"
@@ -3034,6 +3979,15 @@ class DriverControlApp(MDApp):
             (MAX_HISTORY_ITEMS,),
         ).fetchall()
 
+        if not rows:
+            target.add_widget(
+                TwoLineListItem(
+                    text="Todavía no hay gastos",
+                    secondary_text="Los gastos y mantenimientos aparecerán acá.",
+                )
+            )
+            return
+
         for row in rows:
             target.add_widget(
                 TwoLineListItem(
@@ -3058,6 +4012,15 @@ class DriverControlApp(MDApp):
             (MAX_HISTORY_ITEMS,),
         ).fetchall()
 
+        if not rows:
+            target.add_widget(
+                TwoLineListItem(
+                    text="Todavía no hay cargas",
+                    secondary_text="Registrá combustible para conservar su historial.",
+                )
+            )
+            return
+
         for row in rows:
             item = TwoLineListItem(
                 text=f"{self.money(row['amount'])} · {row['liters']:.2f} L",
@@ -3069,6 +4032,68 @@ class DriverControlApp(MDApp):
                 on_release=lambda _x, fuel_id=row["id"]: self.confirm_delete_fuel(fuel_id)
             )
             target.add_widget(item)
+
+    def _fill_maintenance_list(self):
+        try:
+            target = self.root.get_screen("maintenance").ids.maintenance_list
+        except Exception:
+            return
+        target.clear_widgets()
+        rows = self.conn.execute(
+            """
+            SELECT id,created_at,category,description,odometer,amount,
+                   next_due_date,next_due_odometer,status
+            FROM maintenance_records
+            ORDER BY id DESC LIMIT ?
+            """,
+            (MAX_HISTORY_ITEMS,),
+        ).fetchall()
+        if not rows:
+            target.add_widget(
+                TwoLineListItem(
+                    text="Todavía no hay mantenimientos",
+                    secondary_text="Registrá el primero para recibir el próximo aviso.",
+                )
+            )
+            return
+        for row in rows:
+            due = []
+            if row["next_due_odometer"]:
+                due.append(f"próximo {float(row['next_due_odometer']):.0f} km")
+            if row["next_due_date"]:
+                due.append(str(row["next_due_date"]))
+            amount = f" · {self.money(row['amount'])}" if row["amount"] else ""
+            item = TwoLineListItem(
+                text=f"{row['category']}{amount}",
+                secondary_text=(
+                    f"{row['created_at']} · {float(row['odometer'] or 0):.0f} km"
+                    + (" · " + " · ".join(due) if due else "")
+                ),
+            )
+            item.bind(
+                on_release=lambda _item, record_id=int(row["id"]):
+                self.show_maintenance_record(record_id)
+            )
+            target.add_widget(item)
+
+    def show_maintenance_record(self, record_id: int):
+        row = self.conn.execute(
+            "SELECT * FROM maintenance_records WHERE id=?", (record_id,)
+        ).fetchone()
+        if row is None:
+            return
+        lines = [
+            f"Fecha: {row['created_at']}",
+            f"Odómetro: {float(row['odometer'] or 0):.0f} km",
+            f"Costo: {self.money(row['amount'] or 0)}",
+        ]
+        if row["description"]:
+            lines.append(f"Detalle: {row['description']}")
+        if row["next_due_odometer"]:
+            lines.append(f"Próximo kilometraje: {float(row['next_due_odometer']):.0f} km")
+        if row["next_due_date"]:
+            lines.append(f"Próxima fecha: {row['next_due_date']}")
+        self.show_message(str(row["category"]), "\n".join(lines))
 
     def confirm_delete_latest_fuel(self):
         row = self.conn.execute("SELECT id FROM fuel ORDER BY id DESC LIMIT 1").fetchone()
@@ -3146,15 +4171,28 @@ class DriverControlApp(MDApp):
             field = MDTextField(hint_text=hint)
             if key == "payment":
                 field.text = PAYMENT_CASH
+            elif key == "odometer":
+                current_odometer = self._current_odometer()
+                field.text = self._compact_number(current_odometer) if current_odometer > 0 else ""
             if numeric:
                 field.input_filter = "float"
             widgets[key] = field
             box.add_widget(field)
 
+        content = box
+        if len(fields) > 4:
+            scroll = ScrollView(
+                do_scroll_x=False,
+                size_hint_y=None,
+                height=dp(420),
+            )
+            scroll.add_widget(box)
+            content = scroll
+
         dialog = MDDialog(
             title=title,
             type="custom",
-            content_cls=box,
+            content_cls=content,
             buttons=[
                 MDFlatButton(
                     text="CANCELAR",
@@ -3183,6 +4221,7 @@ class DriverControlApp(MDApp):
         screen.change_preview_text = "Vuelto: $0"
         screen.cash_bill_stack = []
         screen.ids.trip_amount.text = ""
+        screen.ids.trip_uber_fee.text = ""
 
     def cancel_new_trip(self):
         self.prepare_new_trip()
@@ -3267,6 +4306,10 @@ class DriverControlApp(MDApp):
                 "Importe",
                 allow_zero=False,
             )
+            uber_fee = self._parse_non_negative_float(
+                screen.ids.trip_uber_fee.text or "0",
+                "Comisión Uber",
+            )
             # Fast Driver UX: no pedimos km ni duración en cada viaje.
             # Los km reales de trabajo salen del odómetro de apertura/cierre.
             km = 0.0
@@ -3295,9 +4338,9 @@ class DriverControlApp(MDApp):
                     """
                     INSERT INTO trips(
                         created_at, amount, payment, km, duration,
-                        cash_received, change_given, session_id
+                        cash_received, change_given, session_id, uber_fee
                     )
-                    VALUES(?,?,?,?,?,?,?,?)
+                    VALUES(?,?,?,?,?,?,?,?,?)
                     """,
                     (
                         now,
@@ -3308,13 +4351,15 @@ class DriverControlApp(MDApp):
                         cash_received,
                         change_given,
                         session_id,
+                        uber_fee,
                     ),
                 )
 
             LOGGER.info(
-                "Trip saved from visual entry: amount=%s payment=%s "
+                "Trip saved from visual entry: amount=%s uber_fee=%s payment=%s "
                 "cash_received=%s change=%s km=%s duration=%s",
                 amount,
+                uber_fee,
                 payment,
                 cash_received,
                 change_given,
@@ -3502,6 +4547,116 @@ class DriverControlApp(MDApp):
                 "No se pudo guardar la carga de combustible.",
             )
 
+    def set_tank_percent(self, percent: float):
+        screen = self.root.get_screen("wellness_map")
+        screen.ids.tank_percent.text = self._compact_number(float(percent))
+        self.calculate_refuel()
+
+    def calculate_refuel(self):
+        screen = self.root.get_screen("wellness_map")
+        try:
+            current_percent = self._parse_non_negative_float(
+                screen.ids.tank_percent.text,
+                "Combustible actual",
+            )
+            if current_percent > 100:
+                raise ValidationError("Combustible actual: usá un porcentaje entre 0 y 100.")
+            capacity = self._setting_float("tank_capacity", DEFAULT_TANK_CAPACITY)
+            price = self._setting_float("fuel_price", DEFAULT_FUEL_PRICE)
+            liters = capacity * (100.0 - current_percent) / 100.0
+            cost = liters * price
+            screen.refuel_result_text = (
+                f"Para llenar: {liters:.1f} L · aproximadamente {self.money(cost)}"
+            )
+        except ValidationError as exc:
+            screen.refuel_result_text = str(exc)
+
+    def open_maintenance_dialog(self):
+        fields = [
+            ("category", "Tipo: aceite, frenos, cubiertas...", False),
+            ("description", "Detalle del trabajo", False),
+            ("odometer", "Odómetro actual", True),
+            ("amount", "Costo (0 si fue solo un control)", True),
+            ("next_due_odometer", "Próximo control (km, opcional)", True),
+            ("next_due_date", "Próxima fecha DD/MM/AAAA (opcional)", False),
+            ("payment", "Pago: Efectivo / Mercado Pago / Otro", False),
+        ]
+        self.input_dialog("Registrar mantenimiento", fields, self.save_maintenance)
+
+    def save_maintenance(self, dialog, widgets):
+        try:
+            category = (widgets["category"].text or "Mantenimiento general").strip()
+            description = (widgets["description"].text or "").strip()
+            odometer_raw = widgets["odometer"].text.strip()
+            odometer = self._parse_non_negative_float(
+                odometer_raw if odometer_raw else str(self._current_odometer()),
+                "Odómetro",
+            )
+            amount = self._parse_non_negative_float(
+                widgets["amount"].text or "0",
+                "Costo",
+            )
+            due_km_raw = widgets["next_due_odometer"].text.strip()
+            next_due_odometer = (
+                self._parse_non_negative_float(due_km_raw, "Próximo control")
+                if due_km_raw else None
+            )
+            next_due_date = widgets["next_due_date"].text.strip()
+            if next_due_date:
+                try:
+                    datetime.strptime(next_due_date, DATE_FORMAT)
+                except ValueError:
+                    raise ValidationError("Próxima fecha: usá el formato DD/MM/AAAA.")
+            payment = self._normalize_payment(widgets["payment"].text)
+            active = self._active_session()
+            session_id = int(active["id"]) if active is not None else None
+            now = datetime.now().strftime(DATETIME_FORMAT)
+            with self.transaction():
+                expense_id = None
+                if amount > 0:
+                    cursor = self.conn.execute(
+                        """
+                        INSERT INTO expenses(
+                            created_at,category,description,amount,payment,session_id
+                        ) VALUES(?,?,?,?,?,?)
+                        """,
+                        (
+                            now,
+                            "Mantenimiento",
+                            f"{category}: {description}".strip(": "),
+                            amount,
+                            payment,
+                            session_id,
+                        ),
+                    )
+                    expense_id = int(cursor.lastrowid)
+                self.conn.execute(
+                    """
+                    INSERT INTO maintenance_records(
+                        created_at,category,description,odometer,amount,
+                        next_due_date,next_due_odometer,payment,session_id,
+                        expense_id,status
+                    ) VALUES(?,?,?,?,?,?,?,?,?,?,'COMPLETED')
+                    """,
+                    (
+                        now, category, description, odometer, amount,
+                        next_due_date or None, next_due_odometer, payment,
+                        session_id, expense_id,
+                    ),
+                )
+            dialog.dismiss()
+            self.refresh_all()
+            self.show_message(
+                "Mantenimiento guardado",
+                "El control quedó en el historial"
+                + (" y su costo se registró como gasto." if amount > 0 else "."),
+            )
+        except ValidationError as exc:
+            self.show_message("Revisá los datos", str(exc))
+        except Exception:
+            LOGGER.exception("Unexpected error while saving maintenance")
+            self.show_message("Error", "No se pudo guardar el mantenimiento.")
+
     def save_settings(self):
         screen = self.root.get_screen("settings")
         try:
@@ -3521,6 +4676,9 @@ class DriverControlApp(MDApp):
             )
             fuel_price = self._parse_non_negative_float(
                 screen.ids.fuel_price.text, "Precio de nafta", allow_zero=False
+            )
+            tank_capacity = self._parse_non_negative_float(
+                screen.ids.tank_capacity.text, "Capacidad del tanque", allow_zero=False
             )
             assistant_min_hourly = self._parse_non_negative_float(
                 screen.ids.assistant_min_hourly.text, "Mínimo por hora", allow_zero=False
@@ -3556,6 +4714,10 @@ class DriverControlApp(MDApp):
                 self.conn.execute(
                     "INSERT OR REPLACE INTO settings(key,value) VALUES('fuel_price',?)",
                     (str(fuel_price),),
+                )
+                self.conn.execute(
+                    "INSERT OR REPLACE INTO settings(key,value) VALUES('tank_capacity',?)",
+                    (str(tank_capacity),),
                 )
                 self.conn.execute(
                     "INSERT OR REPLACE INTO settings(key,value) VALUES('assistant_min_hourly',?)",
@@ -3643,7 +4805,8 @@ class DriverControlApp(MDApp):
             self.show_message(
                 "Excel creado",
                 f"{counts['jornadas']} jornadas · {counts['viajes']} viajes · "
-                f"{counts['gastos']} gastos · {counts['cargas']} cargas\n{detail}",
+                f"{counts['gastos']} gastos · {counts['cargas']} cargas · "
+                f"{counts.get('mantenimientos', 0)} mantenimientos\n{detail}",
             )
             LOGGER.info("Complete database exported to XLSX: %s", export_path)
         except Exception:

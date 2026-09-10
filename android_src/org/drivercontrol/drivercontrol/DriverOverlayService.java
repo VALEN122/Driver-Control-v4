@@ -5,6 +5,7 @@ import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.app.Service;
+import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.graphics.Color;
@@ -260,11 +261,11 @@ public class DriverOverlayService extends Service {
                 18,
                 a.accentColor
         ));
-        headlineView.setText(money(a.hourly) + "/h  ·  " + money(a.perKm) + "/km");
+        headlineView.setText("Deja " + money(a.net) + "  ·  " + money(a.perKm) + "/km");
         metricsView.setText(
-                money(a.offer.fare) + " · " + fmt1(a.offer.pickupKm + a.offer.tripKm)
-                        + " km · " + Math.round(a.offer.pickupMin + a.offer.tripMin) + " min"
-                        + "\nGanancia limpia estimada " + money(a.net)
+                money(a.hourly) + "/h  ·  Nafta " + money(a.fuelCost)
+                        + "  ·  " + fmt1(a.offer.pickupKm + a.offer.tripKm) + " km"
+                        + "\nFactor: " + a.reason
         );
 
         if (tripOverlay.getParent() == null) {
@@ -287,11 +288,11 @@ public class DriverOverlayService extends Service {
         ));
         box.setElevation(dp(8));
 
-        verdictView = textView(28, true, Color.WHITE);
+        verdictView = textView(24, true, Color.WHITE);
         verdictView.setGravity(Gravity.CENTER);
-        headlineView = textView(20, true, Color.WHITE);
+        headlineView = textView(18, true, Color.WHITE);
         headlineView.setGravity(Gravity.CENTER);
-        metricsView = textView(12, false, Color.rgb(210, 220, 230));
+        metricsView = textView(13, false, Color.rgb(210, 220, 230));
         box.addView(verdictView);
         box.addView(headlineView);
         box.addView(metricsView);
@@ -303,7 +304,7 @@ public class DriverOverlayService extends Service {
 
     private WindowManager.LayoutParams tripLayoutParams() {
         WindowManager.LayoutParams lp = new WindowManager.LayoutParams(
-                Math.min(dp(390), getResources().getDisplayMetrics().widthPixels - dp(20)),
+                Math.min(dp(330), getResources().getDisplayMetrics().widthPixels - dp(24)),
                 WindowManager.LayoutParams.WRAP_CONTENT,
                 WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
@@ -698,9 +699,24 @@ public class DriverOverlayService extends Service {
             verdict = "NO CONVIENE";
             accent = Color.rgb(225, 65, 75);
         }
+        SharedPreferences prefs = getSharedPreferences(
+                "driver_control_overlay", Context.MODE_PRIVATE);
+        double minHourly = prefs.getFloat("min_hourly", 15000.0f);
+        double minPerKm = prefs.getFloat("min_per_km", 300.0f);
+        double maxPickup = prefs.getFloat("max_pickup_km", 3.0f);
+        String reason;
+        if (result.perKm < minPerKm) {
+            reason = "$/km bajo";
+        } else if (result.perHour < minHourly) {
+            reason = "$/hora bajo";
+        } else if (offer.pickupKm > maxPickup) {
+            reason = "acercamiento largo";
+        } else {
+            reason = "supera tus mínimos";
+        }
         return new Analysis(
                 offer, result.liters, result.fuelCost, result.netProfit,
-                result.perHour, result.perKm, result.score, verdict, accent);
+                result.perHour, result.perKm, result.score, verdict, reason, accent);
     }
 
     private static double parseInput(String raw) {
@@ -760,6 +776,7 @@ public class DriverOverlayService extends Service {
         final double perKm;
         final double score;
         final String verdict;
+        final String reason;
         final int accentColor;
 
         Analysis(
@@ -771,6 +788,7 @@ public class DriverOverlayService extends Service {
                 double perKm,
                 double score,
                 String verdict,
+                String reason,
                 int accentColor
         ) {
             this.offer = offer;
@@ -781,6 +799,7 @@ public class DriverOverlayService extends Service {
             this.perKm = perKm;
             this.score = score;
             this.verdict = verdict;
+            this.reason = reason;
             this.accentColor = accentColor;
         }
     }

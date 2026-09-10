@@ -17,7 +17,8 @@ CREATE TABLE trips(
     duration INTEGER NOT NULL,
     cash_received REAL,
     change_given REAL,
-    session_id INTEGER
+    session_id INTEGER,
+    uber_fee REAL NOT NULL DEFAULT 0
 );
 CREATE TABLE expenses(
     id INTEGER PRIMARY KEY,
@@ -42,6 +43,7 @@ CREATE TABLE work_sessions(
     opened_at TEXT NOT NULL,
     closed_at TEXT,
     opening_odometer REAL NOT NULL,
+    current_odometer REAL,
     closing_odometer REAL,
     opening_cash REAL NOT NULL,
     closing_cash REAL,
@@ -81,6 +83,20 @@ CREATE TABLE trip_assessments(
     destination_rating TEXT NOT NULL,
     decision TEXT
 );
+CREATE TABLE maintenance_records(
+    id INTEGER PRIMARY KEY,
+    created_at TEXT NOT NULL,
+    category TEXT NOT NULL,
+    description TEXT,
+    odometer REAL NOT NULL,
+    amount REAL NOT NULL,
+    next_due_date TEXT,
+    next_due_odometer REAL,
+    payment TEXT,
+    session_id INTEGER,
+    expense_id INTEGER,
+    status TEXT NOT NULL
+);
 """
 
 
@@ -90,11 +106,12 @@ class ExcelExporterTest(unittest.TestCase):
         connection.row_factory = sqlite3.Row
         connection.executescript(SCHEMA)
         connection.execute(
-            "INSERT INTO work_sessions VALUES(1,?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO work_sessions VALUES(1,?,?,?,?,?,?,?,?,?,?)",
             (
                 "09/09/2026 18:00",
                 "09/09/2026 22:00",
                 77000,
+                77076.1,
                 77076.1,
                 0,
                 33600,
@@ -104,8 +121,8 @@ class ExcelExporterTest(unittest.TestCase):
             ),
         )
         connection.execute(
-            "INSERT INTO trips VALUES(1,?,?,?,?,?,?,?,?)",
-            ("09/09/2026 18:29", 8708, "Efectivo", 11.2, 23, 8600, 0, 1),
+            "INSERT INTO trips VALUES(1,?,?,?,?,?,?,?,?,?)",
+            ("09/09/2026 18:29", 8708, "Efectivo", 11.2, 23, 8600, 0, 1, 950),
         )
         connection.execute(
             "INSERT INTO expenses VALUES(1,?,?,?,?,?,?)",
@@ -153,17 +170,26 @@ class ExcelExporterTest(unittest.TestCase):
                 "ACEPTADO",
             ),
         )
+        connection.execute(
+            "INSERT INTO maintenance_records VALUES(1,?,?,?,?,?,?,?,?,?,?,?)",
+            (
+                "09/09/2026 17:00", "Aceite y filtros", "Cambio completo",
+                77000, 45000, "09/03/2027", 87000, "Mercado Pago",
+                1, None, "COMPLETED",
+            ),
+        )
         connection.commit()
 
         with tempfile.TemporaryDirectory() as temp_dir:
             output = Path(temp_dir) / "driver_control.xlsx"
-            counts = export_driver_control_xlsx(connection, output, "5.8.0")
+            counts = export_driver_control_xlsx(connection, output, "5.9.0")
             self.assertTrue(output.exists())
             self.assertGreater(output.stat().st_size, 10_000)
             self.assertEqual(counts["jornadas"], 1)
             self.assertEqual(counts["viajes"], 1)
             self.assertEqual(counts["gastos"], 1)
             self.assertEqual(counts["cargas"], 1)
+            self.assertEqual(counts["mantenimientos"], 1)
 
             with zipfile.ZipFile(output) as archive:
                 self.assertIn("xl/workbook.xml", archive.namelist())
@@ -182,6 +208,7 @@ class ExcelExporterTest(unittest.TestCase):
                 "Evaluaciones",
                 "Pausas",
                 "Fatiga",
+                "Mantenimiento",
                 "Configuración",
             ):
                 self.assertIn(sheet_name, content)

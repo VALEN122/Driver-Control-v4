@@ -211,7 +211,7 @@ def _session_summary(connection, settings):
         connection,
         """
         SELECT id, opened_at, closed_at, status, opening_odometer,
-               closing_odometer, opening_cash, closing_cash,
+               current_odometer, closing_odometer, opening_cash, closing_cash,
                cash_expected, cash_difference
           FROM work_sessions
          ORDER BY id
@@ -226,6 +226,7 @@ def _session_summary(connection, settings):
             """
             SELECT COUNT(*) AS trips,
                    COALESCE(SUM(amount), 0) AS amount,
+                   COALESCE(SUM(uber_fee), 0) AS uber_fee,
                    COALESCE(SUM(km), 0) AS trip_km
               FROM trips
              WHERE session_id=?
@@ -245,12 +246,15 @@ def _session_summary(connection, settings):
 
         opening_odometer = _as_float(session.get("opening_odometer"))
         closing_odometer = session.get("closing_odometer")
-        if closing_odometer is None:
+        current_odometer = session.get("current_odometer")
+        effective_odometer = closing_odometer if closing_odometer is not None else current_odometer
+        if effective_odometer is None:
             worked_km = _as_float(trip.get("trip_km"))
         else:
-            worked_km = max(_as_float(closing_odometer) - opening_odometer, 0.0)
+            worked_km = max(_as_float(effective_odometer) - opening_odometer, 0.0)
 
         amount = _as_float(trip.get("amount"))
+        uber_fee = _as_float(trip.get("uber_fee"))
         operating = _as_float(expense.get("operating"))
         fuel_cost = worked_km * consumption / 100.0 * fuel_price
         output.append(
@@ -261,6 +265,8 @@ def _session_summary(connection, settings):
                 "status": session.get("status"),
                 "trips": trip.get("trips"),
                 "amount": amount,
+                "uber_fee": uber_fee,
+                "known_billing": amount + uber_fee,
                 "worked_km": worked_km,
                 "operating": operating,
                 "fuel_cost": fuel_cost,
@@ -277,13 +283,14 @@ def _write_summary(workbook, formats, connection, app_version, settings, summari
     worksheet.set_tab_color("#173B67")
     worksheet.set_column("A:A", 31)
     worksheet.set_column("B:B", 20)
-    worksheet.set_column("C:L", 17)
+    worksheet.set_column("C:N", 17)
     worksheet.set_row(0, 34)
-    worksheet.merge_range("A1:L1", "Driver Control - Exportación completa", formats["title"])
+    worksheet.merge_range("A1:N1", "Driver Control - Exportación completa", formats["title"])
 
     trip_stats = _select(
         connection,
         "SELECT COUNT(*) AS count, COALESCE(SUM(amount),0) AS amount, "
+        "COALESCE(SUM(uber_fee),0) AS uber_fee, "
         "COALESCE(SUM(km),0) AS km FROM trips",
     )[0]
     incomplete = _select(
@@ -300,30 +307,49 @@ def _write_summary(workbook, formats, connection, app_version, settings, summari
         "SELECT COALESCE(SUM(amount),0) AS amount, "
         "COALESCE(SUM(liters),0) AS liters FROM fuel",
     )[0]
+    maintenance_stats = {"count": 0, "amount": 0.0}
+    if _table_exists(connection, "maintenance_records"):
+        maintenance_stats = _select(
+            connection,
+            "SELECT COUNT(*) AS count, COALESCE(SUM(amount),0) AS amount "
+            "FROM maintenance_records",
+        )[0]
+    estimated_session_result = sum(
+        _as_float(row.get("estimated_result")) for row in summaries
+    )
 
     overview = [
         ("Generado", datetime.now(), "date"),
         ("Versión de la app", app_version, "text"),
         ("Jornadas registradas", len(summaries), "integer"),
         ("Viajes registrados", trip_stats["count"], "integer"),
-        ("Importe registrado en viajes", trip_stats["amount"], "money"),
+        ("Ingresos registrados", trip_stats["amount"], "money"),
+        ("Comisión Uber informada", trip_stats["uber_fee"], "money"),
+        (
+            "Facturación conocida (ingresos + comisión)",
+            _as_float(trip_stats["amount"]) + _as_float(trip_stats["uber_fee"]),
+            "money",
+        ),
+        ("Ganancia estimada de jornadas", estimated_session_result, "money"),
         ("Kilómetros cargados en viajes", trip_stats["km"], "number"),
         ("Otros gastos", expense_stats["operating"], "money"),
         ("Cargas de combustible", fuel_stats["amount"], "money"),
         ("Litros cargados", fuel_stats["liters"], "number"),
+        ("Mantenimientos registrados", maintenance_stats["count"], "integer"),
+        ("Costo de mantenimiento", maintenance_stats["amount"], "money"),
     ]
     worksheet.write("A3", "Resumen general", formats["section"])
     for row_index, (label, value, kind) in enumerate(overview, start=3):
         worksheet.write(row_index, 0, label, formats["label"])
         worksheet.write(row_index, 1, _prepare_value(value, kind), _cell_format(formats, kind))
 
-    note_row = 13
+    note_row = 3 + len(overview) + 1
     if int(incomplete["count"] or 0) > 0:
         worksheet.merge_range(
             note_row,
             0,
             note_row,
-            11,
+            13,
             f"Revisar {int(incomplete['count'])} viaje(s) con kilómetros o duración en cero.",
             formats["warning"],
         )
@@ -333,10 +359,10 @@ def _write_summary(workbook, formats, connection, app_version, settings, summari
         note_row,
         0,
         note_row + 1,
-        11,
-        "Los importes se exportan tal como fueron registrados. El resultado operativo es una estimación: "
-        "requiere que el monto de cada viaje represente el ingreso real del conductor. El costo de combustible "
-        "usa el consumo y el precio configurados al momento de exportar.",
+        13,
+        "Ingresos es el monto que el conductor registró. La comisión Uber informada se muestra aparte y no se "
+        "descuenta nuevamente. Facturación conocida es ingresos más comisión informada. La ganancia estimada "
+        "resta otros gastos y combustible consumido según kilometraje, consumo y precio configurados.",
         formats["note"],
     )
 
@@ -348,7 +374,9 @@ def _write_summary(workbook, formats, connection, app_version, settings, summari
         ("closed_at", "Cierre", "date"),
         ("status", "Estado", "text"),
         ("trips", "Viajes", "integer"),
-        ("amount", "Importe registrado", "money"),
+        ("amount", "Ingresos registrados", "money"),
+        ("uber_fee", "Comisión informada", "money"),
+        ("known_billing", "Facturación conocida", "money"),
         ("worked_km", "Km trabajados", "number"),
         ("operating", "Otros gastos", "money"),
         ("fuel_cost", "Combustible consumido", "money"),
@@ -425,6 +453,7 @@ def export_driver_control_xlsx(connection, destination, app_version):
                     ("closed_at", "Cierre", "date", 19),
                     ("status", "Estado", "text", 13),
                     ("opening_odometer", "Odómetro inicial", "number", 18),
+                    ("current_odometer", "Último odómetro", "number", 18),
                     ("closing_odometer", "Odómetro final", "number", 18),
                     ("opening_cash", "Efectivo inicial", "money", 18),
                     ("closing_cash", "Efectivo final", "money", 18),
@@ -434,16 +463,18 @@ def export_driver_control_xlsx(connection, destination, app_version):
                 _select(
                     connection,
                     "SELECT id, opened_at, closed_at, status, opening_odometer, "
-                    "closing_odometer, opening_cash, closing_cash, cash_expected, "
+                    "current_odometer, closing_odometer, opening_cash, closing_cash, cash_expected, "
                     "cash_difference FROM work_sessions ORDER BY id",
                 ),
             )
         )
         trip_rows = _select(
             connection,
-            "SELECT id, session_id, created_at, amount, payment, km, duration, "
+            "SELECT id, session_id, created_at, amount, uber_fee, payment, km, duration, "
             "cash_received, change_given FROM trips ORDER BY id",
         )
+        for row in trip_rows:
+            row["known_billing"] = _as_float(row.get("amount")) + _as_float(row.get("uber_fee"))
         sheets.append(
             (
                 "Viajes",
@@ -452,7 +483,9 @@ def export_driver_control_xlsx(connection, destination, app_version):
                     ("id", "ID", "integer", 9),
                     ("session_id", "Jornada", "integer", 11),
                     ("created_at", "Fecha", "date", 19),
-                    ("amount", "Monto registrado", "money", 19),
+                    ("amount", "Ingreso registrado", "money", 19),
+                    ("uber_fee", "Comisión Uber informada", "money", 23),
+                    ("known_billing", "Facturación conocida", "money", 21),
                     ("payment", "Medio de cobro", "text", 19),
                     ("km", "Kilómetros", "number", 14),
                     ("duration", "Duración (min)", "integer", 16),
@@ -581,6 +614,36 @@ def export_driver_control_xlsx(connection, destination, app_version):
             )
         )
 
+        maintenance_rows = []
+        if _table_exists(connection, "maintenance_records"):
+            maintenance_rows = _select(
+                connection,
+                "SELECT id,session_id,created_at,category,description,odometer,amount,"
+                "next_due_date,next_due_odometer,payment,expense_id,status "
+                "FROM maintenance_records ORDER BY id",
+            )
+        sheets.append(
+            (
+                "Mantenimiento",
+                "Mantenimiento",
+                [
+                    ("id", "ID", "integer", 9),
+                    ("session_id", "Jornada", "integer", 11),
+                    ("created_at", "Fecha", "date", 19),
+                    ("category", "Tipo", "text", 22),
+                    ("description", "Detalle", "text", 32),
+                    ("odometer", "Odómetro", "number", 15),
+                    ("amount", "Costo", "money", 17),
+                    ("next_due_date", "Próxima fecha", "text", 17),
+                    ("next_due_odometer", "Próximo kilometraje", "number", 21),
+                    ("payment", "Medio de pago", "text", 18),
+                    ("expense_id", "Gasto vinculado", "integer", 17),
+                    ("status", "Estado", "text", 16),
+                ],
+                maintenance_rows,
+            )
+        )
+
         setting_labels = {
             "daily_goal": "Meta diaria",
             "weekly_goal": "Meta semanal",
@@ -590,6 +653,8 @@ def export_driver_control_xlsx(connection, destination, app_version):
             "assistant_min_hourly": "Mínimo por hora",
             "assistant_min_per_km": "Mínimo por kilómetro",
             "assistant_max_pickup_km": "Pickup máximo (km)",
+            "tank_capacity": "Capacidad del tanque (L)",
+            "dark_mode": "Modo oscuro",
             "ai_server_url": "Servidor de IA",
             "ai_access_token": "Código de acceso de IA",
         }
@@ -623,6 +688,7 @@ def export_driver_control_xlsx(connection, destination, app_version):
             "gastos": len(expense_rows),
             "cargas": len(fuel_rows),
             "evaluaciones": len(assessments),
+            "mantenimientos": len(maintenance_rows),
             "viajes_incompletos": summary_stats["incomplete_trip_count"],
         }
     finally:

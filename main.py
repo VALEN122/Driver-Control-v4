@@ -1,4 +1,3 @@
-import csv
 import logging
 import sqlite3
 import threading
@@ -26,13 +25,13 @@ from kivymd.uix.textfield import MDTextField
 # Driver Control v4.1.0
 # Mejoras aplicadas:
 # - Valor actual de nafta dinámico y persistente con respaldo histórico.
-# - Exportación completa de datos operativos a formato CSV.
+# - Exportación completa de datos operativos a un libro Excel.
 # - Verificación preventiva de recursos gráficos (assets de billetes).
 # - Prevención de micro-cortes y optimización en la gestión de jornadas.
 # ============================================================
 
 APP_NAME = "Driver Control"
-APP_VERSION = "5.8.0"
+APP_VERSION = "5.8.1"
 DB_FILE = "driver_control.db"
 DATE_FORMAT = "%d/%m/%Y"
 DATETIME_FORMAT = "%d/%m/%Y %H:%M"
@@ -1276,9 +1275,9 @@ ScreenManager:
                     on_release: app.save_settings()
 
                 MDRaisedButton:
-                    text: "Exportar datos a CSV"
+                    text: "Exportar todo a Excel"
                     md_bg_color: app.accent_color
-                    on_release: app.export_database_to_csv()
+                    on_release: app.export_database_to_xlsx()
 
                 Widget:
                     size_hint_y: None
@@ -1598,6 +1597,7 @@ class DriverControlApp(MDApp):
                 )
                 """
             )
+            self._ensure_column("trip_assessments", "decision", "TEXT")
 
             self.conn.execute(
                 "INSERT OR IGNORE INTO settings(key,value) VALUES('daily_goal',?)",
@@ -3598,24 +3598,57 @@ class DriverControlApp(MDApp):
                 "No se pudo guardar la configuración.",
             )
 
-    def export_database_to_csv(self):
+    def _share_excel_on_android(self, export_path: Path):
+        from jnius import autoclass
+
+        File = autoclass("java.io.File")
+        FileProvider = autoclass("androidx.core.content.FileProvider")
+        Intent = autoclass("android.content.Intent")
+        PythonActivity = autoclass("org.kivy.android.PythonActivity")
+
+        current = PythonActivity.mActivity
+        authority = f"{current.getPackageName()}.fileprovider"
+        uri = FileProvider.getUriForFile(current, authority, File(str(export_path)))
+        intent = Intent(Intent.ACTION_SEND)
+        intent.setType(
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+        intent.putExtra(Intent.EXTRA_STREAM, uri)
+        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        chooser = Intent.createChooser(intent, "Compartir Excel de Driver Control")
+        current.startActivity(chooser)
+
+    def export_database_to_xlsx(self):
         try:
-            export_path = Path(self.user_data_dir) / "driver_control_export.csv"
-            cursor = self.conn.cursor()
-            cursor.execute("SELECT id, created_at, amount, payment, km, duration FROM trips ORDER BY id DESC")
-            trips = cursor.fetchall()
+            from excel_exporter import export_driver_control_xlsx
 
-            with open(export_path, mode="w", newline="", encoding="utf-8") as f:
-                writer = csv.writer(f)
-                writer.writerow(["ID", "Fecha", "Monto", "Pago", "Km", "Duración (min)"])
-                for row in trips:
-                    writer.writerow(list(row))
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            export_path = (
+                Path(self.user_data_dir)
+                / f"driver_control_export_{timestamp}.xlsx"
+            )
+            self.conn.commit()
+            counts = export_driver_control_xlsx(
+                self.conn,
+                export_path,
+                APP_VERSION,
+            )
 
-            self.show_message("Exportación exitosa", f"Los datos se guardaron en:\n{export_path.resolve()}")
-            LOGGER.info("Database trips exported to CSV successfully.")
+            if platform == "android":
+                self._share_excel_on_android(export_path)
+                detail = "Elegí dónde guardar o compartir el archivo."
+            else:
+                detail = f"Archivo guardado en:\n{export_path.resolve()}"
+
+            self.show_message(
+                "Excel creado",
+                f"{counts['jornadas']} jornadas · {counts['viajes']} viajes · "
+                f"{counts['gastos']} gastos · {counts['cargas']} cargas\n{detail}",
+            )
+            LOGGER.info("Complete database exported to XLSX: %s", export_path)
         except Exception:
-            LOGGER.exception("Error exporting data to CSV.")
-            self.show_message("Error", "No se pudo exportar el archivo CSV.")
+            LOGGER.exception("Error exporting data to XLSX.")
+            self.show_message("Error", "No se pudo crear o compartir el archivo Excel.")
 
 
 if __name__ == "__main__":

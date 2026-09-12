@@ -175,6 +175,28 @@ class FinanceModelTest(unittest.TestCase):
         ).fetchone()
         self.assertIsNotNone(table)
 
+    def test_goal_progress_messages_are_short_and_encouraging(self):
+        self.assertEqual(
+            "Primer paso: sumá tu primer viaje.",
+            self.app._goal_progress_message(0, 20000, 0),
+        )
+        self.assertIn(
+            "Buen comienzo",
+            self.app._goal_progress_message(20, 16000, 1),
+        )
+        self.assertIn(
+            "Vas tomando ritmo",
+            self.app._goal_progress_message(45, 11000, 3),
+        )
+        self.assertIn(
+            "Último tramo",
+            self.app._goal_progress_message(85, 3000, 7),
+        )
+        self.assertEqual(
+            "¡Meta cumplida! Gran jornada.",
+            self.app._goal_progress_message(100, 0, 8),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -24,7 +24,9 @@ import android.text.Editable;
 import android.text.InputType;
 import android.text.TextWatcher;
 import android.view.Gravity;
+import android.view.MotionEvent;
 import android.view.View;
+import android.view.ViewConfiguration;
 import android.view.WindowManager;
 import android.view.inputmethod.InputMethodManager;
 import android.widget.Button;
@@ -387,14 +389,9 @@ public class DriverOverlayService extends Service {
             bubble.setTypeface(bubble.getTypeface(), android.graphics.Typeface.BOLD);
             bubble.setBackground(rounded(Color.rgb(0, 153, 204), 28, Color.WHITE));
             bubble.setElevation(dp(10));
+            bubble.setContentDescription("Vuelto rápido. Tocá para abrir o arrastrá para mover.");
             bubble.setOnClickListener(v -> showChangePanel());
-            bubble.setOnLongClickListener(v -> {
-                String message = lastReaderStatus;
-                if (!lastReaderExcerpt.isEmpty()) message += "\n" + lastReaderExcerpt;
-                showTransientStatus(message, !lastReaderStatus.contains("oferta completa")
-                        && !lastReaderStatus.contains("oferta leída"));
-                return true;
-            });
+            attachBubbleGestures(bubble);
             changeBubble = bubble;
         }
 
@@ -409,17 +406,111 @@ public class DriverOverlayService extends Service {
 
     private WindowManager.LayoutParams bubbleLayoutParams() {
         WindowManager.LayoutParams lp = new WindowManager.LayoutParams(
-                dp(58),
-                dp(58),
+                dp(54),
+                dp(54),
                 WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
                         | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
                         | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
                 PixelFormat.TRANSLUCENT
         );
-        lp.gravity = Gravity.END | Gravity.CENTER_VERTICAL;
-        lp.x = dp(10);
+        lp.gravity = Gravity.TOP | Gravity.START;
+
+        SharedPreferences prefs = getSharedPreferences("driver_control_overlay", MODE_PRIVATE);
+        int defaultX = getResources().getDisplayMetrics().widthPixels - dp(66);
+        int defaultY = Math.round(getResources().getDisplayMetrics().heightPixels * 0.42f);
+        lp.x = clampBubbleX(prefs.getInt("bubble_x", defaultX));
+        lp.y = clampBubbleY(prefs.getInt("bubble_y", defaultY));
         return lp;
+    }
+
+    private void attachBubbleGestures(TextView bubble) {
+        final int touchSlop = ViewConfiguration.get(this).getScaledTouchSlop();
+        bubble.setOnTouchListener(new View.OnTouchListener() {
+            private int startX;
+            private int startY;
+            private float downRawX;
+            private float downRawY;
+            private long downAt;
+            private boolean dragging;
+
+            @Override
+            public boolean onTouch(View view, MotionEvent event) {
+                WindowManager.LayoutParams params =
+                        (WindowManager.LayoutParams) view.getLayoutParams();
+
+                switch (event.getActionMasked()) {
+                    case MotionEvent.ACTION_DOWN:
+                        startX = params.x;
+                        startY = params.y;
+                        downRawX = event.getRawX();
+                        downRawY = event.getRawY();
+                        downAt = SystemClock.uptimeMillis();
+                        dragging = false;
+                        return true;
+
+                    case MotionEvent.ACTION_MOVE:
+                        int dx = Math.round(event.getRawX() - downRawX);
+                        int dy = Math.round(event.getRawY() - downRawY);
+                        if (!dragging && Math.hypot(dx, dy) >= touchSlop) {
+                            dragging = true;
+                        }
+                        if (dragging) {
+                            params.x = clampBubbleX(startX + dx);
+                            params.y = clampBubbleY(startY + dy);
+                            try {
+                                windowManager.updateViewLayout(view, params);
+                            } catch (Throwable ignored) {}
+                        }
+                        return true;
+
+                    case MotionEvent.ACTION_UP:
+                        if (dragging) {
+                            saveBubblePosition(params.x, params.y);
+                        } else if (SystemClock.uptimeMillis() - downAt >= 650L) {
+                            showReaderDiagnostic();
+                        } else {
+                            view.performClick();
+                        }
+                        return true;
+
+                    case MotionEvent.ACTION_CANCEL:
+                        if (dragging) saveBubblePosition(params.x, params.y);
+                        return true;
+
+                    default:
+                        return false;
+                }
+            }
+        });
+    }
+
+    private void showReaderDiagnostic() {
+        String message = lastReaderStatus;
+        if (!lastReaderExcerpt.isEmpty()) message += "\n" + lastReaderExcerpt;
+        showTransientStatus(message, !lastReaderStatus.contains("oferta completa")
+                && !lastReaderStatus.contains("oferta leída"));
+    }
+
+    private int clampBubbleX(int value) {
+        int margin = dp(4);
+        int max = getResources().getDisplayMetrics().widthPixels - dp(54) - margin;
+        return Math.max(margin, Math.min(max, value));
+    }
+
+    private int clampBubbleY(int value) {
+        int topMargin = dp(28);
+        int bottomMargin = dp(40);
+        int max = getResources().getDisplayMetrics().heightPixels - dp(54) - bottomMargin;
+        return Math.max(topMargin, Math.min(max, value));
+    }
+
+    private void saveBubblePosition(int x, int y) {
+        getSharedPreferences("driver_control_overlay", MODE_PRIVATE)
+                .edit()
+                .putInt("bubble_x", clampBubbleX(x))
+                .putInt("bubble_y", clampBubbleY(y))
+                .apply();
     }
 
     private void showChangePanel() {

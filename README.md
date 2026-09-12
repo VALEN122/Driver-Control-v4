@@ -1,4 +1,4 @@
-# Driver Control 5.9.1 — Finanzas claras y operación interactiva
+# Driver Control 5.9.2 — Más claro, móvil y compartible
 
 Base estable 4.3.3 + Asistente de viajes.
 
@@ -39,3 +39,12 @@ abren el mapa instalado y, durante una jornada, exigen iniciar antes una pausa.
 - Calculadora de carga, accesos al mapa y registro de mantenimiento con próximos controles.
 - Decisión de viaje compacta: veredicto, ganancia, $/km, $/hora, nafta y factor decisivo.
 - Modo claro y oscuro, IA, Gemini visual, OCR, burbuja de vuelto y exportación completa a Excel.
+
+## 5.9.2 — Interfaz y uso diario
+
+- El resumen se adapta a pantallas angostas sin superponer rótulos ni importes.
+- La burbuja `$` se puede arrastrar y recuerda su posición.
+- Excel abre el selector nativo de Android con permiso de lectura para WhatsApp,
+  Drive, correo y las demás aplicaciones compatibles.
+- Mensajes breves celebran el avance de la meta y cada viaje cargado sin sumar
+  animaciones que distraigan durante la conducción.

@@ -25,7 +25,7 @@ from kivymd.uix.textfield import MDTextField
 
 
 # ============================================================
-# Driver Control v5.9.1
+# Driver Control v5.9.2
 # Mejoras aplicadas:
 # - Valor actual de nafta dinámico y persistente con respaldo histórico.
 # - Exportación completa de datos operativos a un libro Excel.
@@ -34,10 +34,19 @@ from kivymd.uix.textfield import MDTextField
 # ============================================================
 
 APP_NAME = "Driver Control"
-APP_VERSION = "5.9.1"
+APP_VERSION = "5.9.2"
 DB_FILE = "driver_control.db"
 DATE_FORMAT = "%d/%m/%Y"
 DATETIME_FORMAT = "%d/%m/%Y %H:%M"
+WEEKDAYS_ES = (
+    "lunes",
+    "martes",
+    "miércoles",
+    "jueves",
+    "viernes",
+    "sábado",
+    "domingo",
+)
 
 DEFAULT_DAILY_GOAL = 70000.0
 DEFAULT_WEEKLY_GOAL = 400000.0
@@ -153,26 +162,33 @@ ScreenManager:
 
                 MDBoxLayout:
                     size_hint_y: None
-                    height: dp(52)
+                    height: dp(64)
                     spacing: dp(8)
                     MDBoxLayout:
                         orientation: "vertical"
+                        size_hint_x: .62
                         MDLabel:
-                            text: "Resumen claro de tu trabajo"
+                            text: "Tu día al volante"
                             bold: True
                             font_style: "H6"
+                            size_hint_y: None
+                            height: dp(34)
                         MDLabel:
                             text: root.current_datetime_text
                             theme_text_color: "Custom"
                             text_color: app.muted_color
                             font_style: "Caption"
+                            size_hint_y: None
+                            height: dp(26)
                     MDFlatButton:
                         text: "HOY"
+                        size_hint_x: .18
                         theme_text_color: "Custom"
                         text_color: app.accent_color if root.period_mode == "today" else app.muted_color
                         on_release: app.set_dashboard_period("today")
                     MDFlatButton:
                         text: "7 DÍAS"
+                        size_hint_x: .20
                         theme_text_color: "Custom"
                         text_color: app.accent_color if root.period_mode == "week" else app.muted_color
                         on_release: app.set_dashboard_period("week")
@@ -226,63 +242,94 @@ ScreenManager:
                     radius: [18,18,18,18]
                     md_bg_color: app.card_color
                     size_hint_y: None
-                    height: dp(280)
+                    height: dp(374)
 
                     MDLabel:
-                        text: "De dónde sale"
+                        text: "Así se forma tu ganancia"
                         font_style: "H6"
                         bold: True
                         size_hint_y: None
                         height: dp(32)
-                    MDGridLayout:
-                        cols: 2
-                        spacing: dp(4)
+                    MDBoxLayout:
+                        orientation: "vertical"
+                        spacing: dp(0)
                         size_hint_y: None
-                        height: dp(184)
-                        MDLabel:
-                            text: "Facturación conocida"
-                            theme_text_color: "Custom"
-                            text_color: app.muted_color
-                        MDLabel:
-                            text: root.revenue_text
-                            halign: "right"
-                            bold: True
-                        MDLabel:
-                            text: "Ingresos registrados"
-                            theme_text_color: "Custom"
-                            text_color: app.muted_color
-                        MDLabel:
-                            text: root.income_text
-                            halign: "right"
-                            bold: True
-                        MDLabel:
-                            text: "Comisión Uber informada"
-                            theme_text_color: "Custom"
-                            text_color: app.muted_color
-                        MDLabel:
-                            text: root.commission_text
-                            halign: "right"
-                        MDLabel:
-                            text: "Combustible consumido"
-                            theme_text_color: "Custom"
-                            text_color: app.muted_color
-                        MDLabel:
-                            text: "− " + root.fuel_cost_text
-                            halign: "right"
-                        MDLabel:
-                            text: "Otros gastos"
-                            theme_text_color: "Custom"
-                            text_color: app.muted_color
-                        MDLabel:
-                            text: "− " + root.expenses_text
-                            halign: "right"
-                        MDLabel:
-                            text: "Viajes · kilómetros"
-                            theme_text_color: "Custom"
-                            text_color: app.muted_color
-                        MDLabel:
-                            text: root.trips_text + " · " + root.km_text
-                            halign: "right"
+                        height: dp(240)
+
+                        MDBoxLayout:
+                            size_hint_y: None
+                            height: dp(40)
+                            MDLabel:
+                                text: "Facturación conocida"
+                                size_hint_x: .72
+                                theme_text_color: "Custom"
+                                text_color: app.muted_color
+                            MDLabel:
+                                text: root.revenue_text
+                                size_hint_x: .28
+                                halign: "right"
+                                bold: True
+                        MDBoxLayout:
+                            size_hint_y: None
+                            height: dp(40)
+                            MDLabel:
+                                text: "Ingresos registrados"
+                                size_hint_x: .72
+                                theme_text_color: "Custom"
+                                text_color: app.muted_color
+                            MDLabel:
+                                text: root.income_text
+                                size_hint_x: .28
+                                halign: "right"
+                                bold: True
+                        MDBoxLayout:
+                            size_hint_y: None
+                            height: dp(40)
+                            MDLabel:
+                                text: "Comisión de Uber"
+                                size_hint_x: .72
+                                theme_text_color: "Custom"
+                                text_color: app.muted_color
+                            MDLabel:
+                                text: root.commission_text
+                                size_hint_x: .28
+                                halign: "right"
+                        MDBoxLayout:
+                            size_hint_y: None
+                            height: dp(40)
+                            MDLabel:
+                                text: "Nafta consumida"
+                                size_hint_x: .72
+                                theme_text_color: "Custom"
+                                text_color: app.muted_color
+                            MDLabel:
+                                text: "− " + root.fuel_cost_text
+                                size_hint_x: .28
+                                halign: "right"
+                        MDBoxLayout:
+                            size_hint_y: None
+                            height: dp(40)
+                            MDLabel:
+                                text: "Otros gastos"
+                                size_hint_x: .72
+                                theme_text_color: "Custom"
+                                text_color: app.muted_color
+                            MDLabel:
+                                text: "− " + root.expenses_text
+                                size_hint_x: .28
+                                halign: "right"
+                        MDBoxLayout:
+                            size_hint_y: None
+                            height: dp(40)
+                            MDLabel:
+                                text: "Viajes · kilómetros"
+                                size_hint_x: .72
+                                theme_text_color: "Custom"
+                                text_color: app.muted_color
+                            MDLabel:
+                                text: root.trips_text + " · " + root.km_text
+                                size_hint_x: .28
+                                halign: "right"
                     MDLabel:
                         text: root.commission_help_text
                         theme_text_color: "Custom"
@@ -290,7 +337,7 @@ ScreenManager:
                         font_style: "Caption"
                         text_size: self.width, None
                         size_hint_y: None
-                        height: dp(42)
+                        height: dp(54)
 
                 MDCard:
                     orientation: "vertical"
@@ -396,11 +443,11 @@ ScreenManager:
                     size_hint_y: None
                     height: dp(118)
                     MDRaisedButton:
-                        text: "¿CONVIENE?"
+                        text: "¿ME CONVIENE?"
                         md_bg_color: app.accent_color
                         on_release: app.go("assistant")
                     MDRaisedButton:
-                        text: "+ VIAJE"
+                        text: "+ SUMAR VIAJE"
                         on_release: app.open_trip_dialog()
                     MDFlatButton:
                         text: "+ GASTO"
@@ -433,7 +480,8 @@ ScreenManager:
                     MDLabel:
                         text: root.daily_remaining_text
                         theme_text_color: "Custom"
-                        text_color: app.muted_color
+                        text_color: root.goal_message_color
+                        bold: True
 
         MainNav:
             active_screen: "dashboard"
@@ -1616,7 +1664,7 @@ ScreenManager:
                     on_release: app.save_settings()
 
                 MDRaisedButton:
-                    text: "Exportar todo a Excel"
+                    text: "EXPORTAR Y COMPARTIR EXCEL"
                     md_bg_color: app.accent_color
                     on_release: app.export_database_to_xlsx()
 
@@ -1710,6 +1758,7 @@ class DashboardScreen(Screen):
     goal_text = StringProperty("$0 / $0")
     goal_percent = NumericProperty(0)
     daily_remaining_text = StringProperty("Faltan $0")
+    goal_message_color = ListProperty([0.32, 0.38, 0.45, 1])
     weekly_goal_text = StringProperty("$0 / $0")
     weekly_goal_percent = NumericProperty(0)
     weekly_remaining_text = StringProperty("Faltan $0")
@@ -2364,6 +2413,18 @@ class DriverControlApp(MDApp):
     def money(self, value: float) -> str:
         return f"${float(value):,.0f}".replace(",", ".")
 
+    def _goal_progress_message(self, percent: float, remaining: float, trips: int) -> str:
+        """Celebrate progress without adding distracting animation while driving."""
+        if percent >= 100:
+            return "¡Meta cumplida! Gran jornada."
+        if trips <= 0:
+            return "Primer paso: sumá tu primer viaje."
+        if percent < 25:
+            return f"Buen comienzo · faltan {self.money(remaining)}"
+        if percent < 60:
+            return f"Vas tomando ritmo · faltan {self.money(remaining)}"
+        return f"Último tramo · faltan {self.money(remaining)}"
+
     def _parse_non_negative_float(
         self,
         raw: str,
@@ -2431,7 +2492,8 @@ class DriverControlApp(MDApp):
             return
         dashboard = self.root.get_screen("dashboard")
         now = datetime.now()
-        dashboard.current_datetime_text = now.strftime("%A %d/%m/%Y · %H:%M:%S").capitalize()
+        weekday = WEEKDAYS_ES[now.weekday()].capitalize()
+        dashboard.current_datetime_text = f"{weekday} {now:%d/%m/%Y} · {now:%H:%M}"
         session = self._active_session()
         if session:
             try:
@@ -2871,7 +2933,10 @@ class DriverControlApp(MDApp):
         def _finish(_dt):
             self._sync_android_assistant_settings()
             if self._start_driver_overlay_service():
-                self.show_message("Flotante activo", "Listo. La burbuja $ queda disponible sobre Uber.")
+                self.show_message(
+                    "Flotante activo",
+                    "Tocá la burbuja $ para abrir el vuelto o arrastrala para moverla.",
+                )
             else:
                 self.show_message(
                     "Falta permiso",
@@ -3702,8 +3767,15 @@ class DriverControlApp(MDApp):
         dashboard.goal_text = f"{self.money(metrics['income'])} / {self.money(period_goal)}"
         dashboard.goal_percent = self._percent(metrics["income"], period_goal)
         remaining = max(period_goal - metrics["income"], 0.0)
-        dashboard.daily_remaining_text = (
-            "Meta alcanzada" if remaining <= 0 else f"Faltan {self.money(remaining)}"
+        dashboard.daily_remaining_text = self._goal_progress_message(
+            dashboard.goal_percent,
+            remaining,
+            int(metrics["trips"]),
+        )
+        dashboard.goal_message_color = (
+            list(self.accent_color)
+            if dashboard.goal_percent >= 100
+            else list(self.muted_color)
         )
         dashboard.weekly_goal_text = (
             f"{self.money(weekly_metrics['income'])} / "
@@ -4397,11 +4469,10 @@ class DriverControlApp(MDApp):
             self.root.current = "dashboard"
             self.refresh_all()
 
+            detail = f"Sumaste {self.money(amount)} a la jornada."
             if payment == PAYMENT_CASH:
-                self.show_message(
-                    "Cobro en efectivo",
-                    f"Vuelto a entregar: {self.money(change_given or 0)}",
-                )
+                detail += f" Vuelto: {self.money(change_given or 0)}."
+            self.show_message("¡Viaje sumado!", detail)
 
         except ValidationError as exc:
             self.show_message("Revisá los datos", str(exc))
@@ -4787,8 +4858,12 @@ class DriverControlApp(MDApp):
             )
 
     def _share_excel_on_android(self, export_path: Path):
-        from jnius import autoclass
+        from jnius import autoclass, cast
 
+        if not export_path.is_file() or export_path.stat().st_size <= 0:
+            raise FileNotFoundError(f"Excel export not found: {export_path}")
+
+        ClipData = autoclass("android.content.ClipData")
         File = autoclass("java.io.File")
         FileProvider = autoclass("androidx.core.content.FileProvider")
         Intent = autoclass("android.content.Intent")
@@ -4801,9 +4876,12 @@ class DriverControlApp(MDApp):
         intent.setType(
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
-        intent.putExtra(Intent.EXTRA_STREAM, uri)
+        intent.putExtra(Intent.EXTRA_STREAM, cast("android.os.Parcelable", uri))
+        intent.putExtra(Intent.EXTRA_SUBJECT, f"Driver Control {APP_VERSION}")
+        intent.setClipData(ClipData.newRawUri("Excel de Driver Control", uri))
         intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         chooser = Intent.createChooser(intent, "Compartir Excel de Driver Control")
+        chooser.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         current.startActivity(chooser)
 
     def export_database_to_xlsx(self):

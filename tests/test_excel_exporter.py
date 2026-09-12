@@ -4,7 +4,7 @@ import unittest
 import zipfile
 from pathlib import Path
 
-from excel_exporter import export_driver_control_xlsx
+from excel_exporter import _session_summary, export_driver_control_xlsx
 
 
 SCHEMA = """
@@ -50,6 +50,20 @@ CREATE TABLE work_sessions(
     cash_expected REAL,
     cash_difference REAL,
     status TEXT NOT NULL
+);
+CREATE TABLE session_summaries(
+    session_id INTEGER PRIMARY KEY,
+    income_total REAL NOT NULL,
+    trip_count INTEGER NOT NULL,
+    cash_collected REAL,
+    mp_collected REAL,
+    app_collected REAL,
+    uber_fee REAL NOT NULL,
+    uber_owes REAL NOT NULL,
+    driver_owes REAL NOT NULL,
+    confidence TEXT NOT NULL,
+    source_mode TEXT NOT NULL,
+    updated_at TEXT NOT NULL
 );
 CREATE TABLE settings(key TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE TABLE driver_breaks(
@@ -125,6 +139,13 @@ class ExcelExporterTest(unittest.TestCase):
             ("09/09/2026 18:29", 8708, "Efectivo", 11.2, 23, 8600, 0, 1, 950),
         )
         connection.execute(
+            "INSERT INTO session_summaries VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+            (
+                1, 33600, 12, 9000, 4600, 20000, 4200, 0, 0,
+                "CONFIRMED", "QUICK", "09/09/2026 22:00",
+            ),
+        )
+        connection.execute(
             "INSERT INTO expenses VALUES(1,?,?,?,?,?,?)",
             ("09/09/2026 21:53", "Combustible", "Carga 13.70 L", 30000, 1, "Efectivo"),
         )
@@ -190,6 +211,14 @@ class ExcelExporterTest(unittest.TestCase):
             self.assertEqual(counts["gastos"], 1)
             self.assertEqual(counts["cargas"], 1)
             self.assertEqual(counts["mantenimientos"], 1)
+            self.assertEqual(counts["cierres"], 1)
+
+            summaries = _session_summary(connection, {
+                "fuel_consumption": "8", "fuel_price": "2048"
+            })
+            self.assertEqual(summaries[0]["amount"], 33600)
+            self.assertEqual(summaries[0]["trips"], 12)
+            self.assertEqual(summaries[0]["confidence"], "CONFIRMED")
 
             with zipfile.ZipFile(output) as archive:
                 self.assertIn("xl/workbook.xml", archive.namelist())
@@ -202,6 +231,7 @@ class ExcelExporterTest(unittest.TestCase):
             for sheet_name in (
                 "Resumen",
                 "Jornadas",
+                "Cierres",
                 "Viajes",
                 "Gastos",
                 "Combustible",

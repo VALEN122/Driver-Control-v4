@@ -1,10 +1,14 @@
-# Driver Control 5.9.2 — Más claro, móvil y compartible
+# Driver Control 6.0.0 — Cierre inteligente
 
 Base estable 4.3.3 + Asistente de viajes.
 
 Flujo rápido: Inicio → ¿Me conviene este viaje? → cargar datos de la oferta → Analizar.
 
 Driver Control calcula costo de combustible, neto estimado, $/hora, $/km y un puntaje de conveniencia. La decisión final siempre queda en manos del conductor.
+
+Flujo financiero recomendado: abrir jornada → trabajar sin carga obligatoria →
+cerrar con los totales de Uber → entender cuánto quedó → elegir una acción para
+la próxima jornada.
 
 ## 4.5 — Asistente flotante sobre Uber
 La versión 4.5 incorpora un servicio Android opcional que analiza localmente los datos numéricos visibles en ofertas de Uber Driver y muestra un resultado flotante. Requiere activación manual del servicio de accesibilidad y no realiza acciones automáticas sobre Uber.
@@ -48,3 +52,17 @@ abren el mapa instalado y, durante una jornada, exigen iniciar antes una pausa.
   Drive, correo y las demás aplicaciones compatibles.
 - Mensajes breves celebran el avance de la meta y cada viaje cargado sin sumar
   animaciones que distraigan durante la conducción.
+
+## 6.0 — Cierre inteligente
+
+- Cierre rápido con total de ganancias, cobros y odómetro, sin exigir viajes individuales.
+- Estado completo o parcial: un dato desconocido nunca bloquea ni se inventa.
+- Resumen por jornada que prevalece sobre el detalle para evitar doble conteo.
+- Historia posterior con resultado, ecuación, $/hora, $/km y una recomendación explicada.
+- Motor local y finito de reglas financieras; no optimiza tiempo de pantalla.
+- Hoja `Cierres` en Excel y versión identificable del esquema SQLite.
+
+La auditoría de producto, arquitectura, Google Play, monetización y roadmap está en
+[`PRODUCT_AUDIT_10X.md`](PRODUCT_AUDIT_10X.md). La compilación actual sigue siendo
+de prueba: API 36, AAB firmado, privacidad, Billing y la estrategia de
+AccessibilityService son puertas obligatorias antes de publicar.

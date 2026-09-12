@@ -48,6 +48,7 @@ def _load_main_without_kivy():
     _module("kivy.metrics", dp=lambda value: value)
     _module(
         "kivy.properties",
+        BooleanProperty=_property,
         ListProperty=_property,
         NumericProperty=_property,
         StringProperty=_property,
@@ -174,6 +175,123 @@ class FinanceModelTest(unittest.TestCase):
             "SELECT name FROM sqlite_master WHERE type='table' AND name='maintenance_records'"
         ).fetchone()
         self.assertIsNotNone(table)
+        summary_table = self.app.conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='session_summaries'"
+        ).fetchone()
+        self.assertIsNotNone(summary_table)
+        schema_version = self.app.conn.execute("PRAGMA user_version").fetchone()[0]
+        self.assertEqual(schema_version, self.main.DB_SCHEMA_VERSION)
+
+    def test_smart_close_summary_replaces_trip_detail_without_double_counting(self):
+        now = datetime.now()
+        opened = (now - timedelta(hours=4)).strftime(self.main.DATETIME_FORMAT)
+        closed = now.strftime(self.main.DATETIME_FORMAT)
+        date_text = now.strftime(self.main.DATE_FORMAT)
+        with self.app.transaction():
+            cursor = self.app.conn.execute(
+                """
+                INSERT INTO work_sessions(
+                    opened_at,closed_at,opening_odometer,current_odometer,
+                    closing_odometer,opening_cash,status
+                ) VALUES(?,?,?,?,?,?,'CLOSED')
+                """,
+                (opened, closed, 20000, 20100, 20100, 5000),
+            )
+            session_id = int(cursor.lastrowid)
+            self.app.conn.execute(
+                """
+                INSERT INTO trips(
+                    created_at,amount,payment,km,duration,cash_received,
+                    change_given,session_id,uber_fee
+                ) VALUES(?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    now.strftime(self.main.DATETIME_FORMAT),
+                    10000,
+                    self.main.PAYMENT_CASH,
+                    20,
+                    30,
+                    10000,
+                    0,
+                    session_id,
+                    1000,
+                ),
+            )
+            self.app.conn.execute(
+                """
+                INSERT INTO session_summaries(
+                    session_id,income_total,trip_count,cash_collected,
+                    mp_collected,app_collected,uber_fee,uber_owes,
+                    driver_owes,confidence,source_mode,updated_at
+                ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    session_id,
+                    25000,
+                    5,
+                    8000,
+                    7000,
+                    10000,
+                    3000,
+                    0,
+                    0,
+                    "CONFIRMED",
+                    "QUICK",
+                    closed,
+                ),
+            )
+            self.app.conn.execute(
+                "INSERT OR REPLACE INTO settings(key,value) VALUES('fuel_consumption','10')"
+            )
+            self.app.conn.execute(
+                "INSERT OR REPLACE INTO settings(key,value) VALUES('fuel_price','1000')"
+            )
+
+        session = self.app._session_metrics(session_id)
+        self.assertEqual(session["revenue"], 25000)
+        self.assertEqual(session["uber_fee"], 3000)
+        self.assertEqual(session["trips"], 5)
+        self.assertEqual(session["cash_expected"], 13000)
+        self.assertEqual(session["confidence"], "CONFIRMED")
+
+        period = self.app._range_metrics([date_text])
+        self.assertEqual(period["income"], 25000)
+        self.assertEqual(period["uber_fee"], 3000)
+        self.assertEqual(period["known_billing"], 28000)
+        self.assertEqual(period["trips"], 5)
+        self.assertEqual(period["km"], 100)
+        self.assertEqual(period["fuel_cost"], 10000)
+        self.assertEqual(period["profit"], 15000)
+
+    def test_partial_summary_keeps_unknown_cash_explicit(self):
+        now = datetime.now().strftime(self.main.DATETIME_FORMAT)
+        with self.app.transaction():
+            cursor = self.app.conn.execute(
+                """
+                INSERT INTO work_sessions(
+                    opened_at,opening_odometer,current_odometer,opening_cash,status
+                ) VALUES(?,?,?,?, 'OPEN')
+                """,
+                (now, 30000, 30010, 2000),
+            )
+            session_id = int(cursor.lastrowid)
+            self.app.conn.execute(
+                """
+                INSERT INTO session_summaries(
+                    session_id,income_total,trip_count,cash_collected,
+                    mp_collected,app_collected,uber_fee,uber_owes,
+                    driver_owes,confidence,source_mode,updated_at
+                ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    session_id, 18000, 0, None, None, None, 0, 0, 0,
+                    "PARTIAL", "QUICK", now,
+                ),
+            )
+
+        metrics = self.app._session_metrics(session_id)
+        self.assertFalse(metrics["cash_reconciliation_known"])
+        self.assertEqual(metrics["confidence"], "PARTIAL")
 
     def test_goal_progress_messages_are_short_and_encouraging(self):
         self.assertEqual(

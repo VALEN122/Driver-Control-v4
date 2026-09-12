@@ -10,7 +10,7 @@ from kivy.lang import Builder
 from kivy.clock import Clock
 from kivy.graphics import Color, RoundedRectangle
 from kivy.metrics import dp
-from kivy.properties import ListProperty, NumericProperty, StringProperty
+from kivy.properties import BooleanProperty, ListProperty, NumericProperty, StringProperty
 from kivy.uix.scrollview import ScrollView
 from kivy.uix.screenmanager import Screen
 from kivy.uix.widget import Widget
@@ -23,9 +23,11 @@ from kivymd.uix.dialog import MDDialog
 from kivymd.uix.list import TwoLineListItem
 from kivymd.uix.textfield import MDTextField
 
+from insight_engine import rank_financial_insights
+
 
 # ============================================================
-# Driver Control v5.9.2
+# Driver Control v6.0.0
 # Mejoras aplicadas:
 # - Valor actual de nafta dinámico y persistente con respaldo histórico.
 # - Exportación completa de datos operativos a un libro Excel.
@@ -34,8 +36,9 @@ from kivymd.uix.textfield import MDTextField
 # ============================================================
 
 APP_NAME = "Driver Control"
-APP_VERSION = "5.9.2"
+APP_VERSION = "6.0.0"
 DB_FILE = "driver_control.db"
+DB_SCHEMA_VERSION = 2
 DATE_FORMAT = "%d/%m/%Y"
 DATETIME_FORMAT = "%d/%m/%Y %H:%M"
 WEEKDAYS_ES = (
@@ -136,6 +139,8 @@ ScreenManager:
     ExpensesScreen:
     FuelScreen:
     CashScreen:
+    SmartCloseScreen:
+    DayStoryScreen:
     SessionsScreen:
     TripAssistantScreen:
     WellnessMapScreen:
@@ -963,6 +968,15 @@ ScreenManager:
                         height: dp(42)
 
                 MDLabel:
+                    text: root.reconciliation_text
+                    theme_text_color: "Custom"
+                    text_color: app.accent_color if "Falta" in root.reconciliation_text else app.muted_color
+                    bold: "Falta" in root.reconciliation_text
+                    size_hint_y: None
+                    text_size: self.width, None
+                    height: self.texture_size[1] + dp(16)
+
+                MDLabel:
                     text: "Cobrado indica por dónde entró el dinero. Ganancia real descuenta combustible y gastos; la comisión informada se muestra aparte."
                     theme_text_color: "Custom"
                     text_color: app.muted_color
@@ -985,6 +999,420 @@ ScreenManager:
 
         MainNav:
             active_screen: "cash"
+
+
+<SmartCloseScreen>:
+    name: "smart_close"
+    MDBoxLayout:
+        orientation: "vertical"
+        md_bg_color: app.bg_color
+
+        MDTopAppBar:
+            title: "Cierre inteligente"
+            left_action_items: [["arrow-left", lambda x: app.cancel_smart_close()]]
+            md_bg_color: app.bg_color
+
+        ScrollView:
+            do_scroll_x: False
+
+            MDBoxLayout:
+                orientation: "vertical"
+                padding: [dp(16), dp(12), dp(16), dp(32)]
+                spacing: dp(12)
+                size_hint_y: None
+                height: self.minimum_height
+
+                MDLabel:
+                    text: "Cerrá tu día en menos de 90 segundos"
+                    font_style: "H5"
+                    bold: True
+                    size_hint_y: None
+                    height: dp(42)
+
+                MDLabel:
+                    text: "Usá los totales de Uber. No necesitás cargar ni entender cada viaje."
+                    theme_text_color: "Custom"
+                    text_color: app.muted_color
+                    text_size: self.width, None
+                    size_hint_y: None
+                    height: self.texture_size[1] + dp(8)
+
+                MDCard:
+                    orientation: "vertical"
+                    padding: dp(16)
+                    spacing: dp(8)
+                    radius: [18,18,18,18]
+                    md_bg_color: app.card_color
+                    size_hint_y: None
+                    height: dp(330)
+
+                    MDLabel:
+                        text: "1 · Lo que generaste"
+                        font_style: "H6"
+                        bold: True
+                        size_hint_y: None
+                        height: dp(34)
+
+                    MDLabel:
+                        text: "Buscá 'Tus ganancias' en Uber, no la facturación bruta."
+                        theme_text_color: "Custom"
+                        text_color: app.muted_color
+                        font_style: "Caption"
+                        text_size: self.width, None
+                        size_hint_y: None
+                        height: dp(42)
+
+                    MDTextField:
+                        id: close_income
+                        hint_text: "Total que dice Uber ($)"
+                        helper_text: "Puede ser el total del día, aunque no tengas los viajes"
+                        helper_text_mode: "on_focus"
+                        input_filter: "float"
+                        size_hint_y: None
+                        height: dp(58)
+
+                    MDTextField:
+                        id: close_trip_count
+                        hint_text: "Cantidad de viajes (opcional)"
+                        input_filter: "int"
+                        size_hint_y: None
+                        height: dp(58)
+
+                    MDTextField:
+                        id: close_cash_collected
+                        hint_text: "Cobrado en efectivo (opcional)"
+                        helper_text: "Es parte del total; no se suma dos veces"
+                        helper_text_mode: "on_focus"
+                        input_filter: "float"
+                        size_hint_y: None
+                        height: dp(58)
+
+                MDRaisedButton:
+                    text: "AGREGAR DETALLES" if not root.show_details else "OCULTAR DETALLES"
+                    size_hint_y: None
+                    height: dp(48)
+                    on_release: app.toggle_smart_close_details()
+
+                MDCard:
+                    orientation: "vertical"
+                    padding: dp(16)
+                    spacing: dp(8)
+                    radius: [18,18,18,18]
+                    md_bg_color: app.card_color
+                    size_hint_y: None
+                    height: dp(466) if root.show_details else 0
+                    opacity: 1 if root.show_details else 0
+                    disabled: not root.show_details
+
+                    MDLabel:
+                        text: "Detalle opcional"
+                        font_style: "H6"
+                        bold: True
+                        size_hint_y: None
+                        height: dp(34)
+
+                    MDTextField:
+                        id: close_mp_collected
+                        hint_text: "Mercado Pago de esos viajes"
+                        input_filter: "float"
+                        size_hint_y: None
+                        height: dp(58)
+
+                    MDTextField:
+                        id: close_app_collected
+                        hint_text: "Transferido por Uber / la app"
+                        helper_text: "Dejalo vacío si no aparece claramente"
+                        helper_text_mode: "on_focus"
+                        input_filter: "float"
+                        size_hint_y: None
+                        height: dp(58)
+
+                    MDTextField:
+                        id: close_uber_fee
+                        hint_text: "Comisión que informa Uber"
+                        helper_text: "Solo si aparece separada; no se descuenta otra vez"
+                        helper_text_mode: "on_focus"
+                        input_filter: "float"
+                        size_hint_y: None
+                        height: dp(58)
+
+                    MDTextField:
+                        id: close_uber_owes
+                        hint_text: "Uber te debe ($)"
+                        input_filter: "float"
+                        size_hint_y: None
+                        height: dp(58)
+
+                    MDTextField:
+                        id: close_driver_owes
+                        hint_text: "Vos debés pagarle a Uber ($)"
+                        input_filter: "float"
+                        size_hint_y: None
+                        height: dp(58)
+
+                    MDLabel:
+                        text: "Completá solo lo que reconozcas. Podés dejar cualquier detalle vacío."
+                        theme_text_color: "Custom"
+                        text_color: app.muted_color
+                        font_style: "Caption"
+                        text_size: self.width, None
+                        size_hint_y: None
+                        height: dp(50)
+
+                MDCard:
+                    orientation: "vertical"
+                    padding: dp(16)
+                    spacing: dp(8)
+                    radius: [18,18,18,18]
+                    md_bg_color: app.card_color
+                    size_hint_y: None
+                    height: dp(326)
+
+                    MDLabel:
+                        text: "2 · Kilómetros y caja"
+                        font_style: "H6"
+                        bold: True
+                        size_hint_y: None
+                        height: dp(34)
+
+                    MDLabel:
+                        text: root.registered_costs_text
+                        theme_text_color: "Custom"
+                        text_color: app.muted_color
+                        font_style: "Caption"
+                        text_size: self.width, None
+                        size_hint_y: None
+                        height: dp(54)
+
+                    MDTextField:
+                        id: close_odometer
+                        hint_text: "Odómetro final"
+                        input_filter: "float"
+                        size_hint_y: None
+                        height: dp(58)
+
+                    MDTextField:
+                        id: close_cash_counted
+                        hint_text: "Efectivo contado (opcional)"
+                        helper_text: "Dejalo vacío si hoy no querés conciliar la caja"
+                        helper_text_mode: "on_focus"
+                        input_filter: "float"
+                        size_hint_y: None
+                        height: dp(58)
+
+                    MDGridLayout:
+                        cols: 2
+                        spacing: dp(8)
+                        size_hint_y: None
+                        height: dp(52)
+
+                        MDFlatButton:
+                            text: "+ GASTO"
+                            on_release: app.open_expense_dialog()
+
+                        MDFlatButton:
+                            text: "+ NAFTA"
+                            on_release: app.open_fuel_dialog()
+
+                MDCard:
+                    orientation: "vertical"
+                    padding: dp(16)
+                    spacing: dp(8)
+                    radius: [18,18,18,18]
+                    md_bg_color: app.card_color
+                    size_hint_y: None
+                    height: dp(190)
+
+                    MDLabel:
+                        text: "3 · ¿Qué tan completo quedó?"
+                        font_style: "H6"
+                        bold: True
+                        size_hint_y: None
+                        height: dp(34)
+
+                    MDLabel:
+                        text: "Elegí “Parcial” si Uber no muestra algún dato. El cierre se guarda igual."
+                        theme_text_color: "Custom"
+                        text_color: app.muted_color
+                        font_style: "Caption"
+                        text_size: self.width, None
+                        size_hint_y: None
+                        height: dp(50)
+
+                    MDGridLayout:
+                        cols: 2
+                        spacing: dp(8)
+                        size_hint_y: None
+                        height: dp(52)
+
+                        MDRaisedButton:
+                            text: "COMPLETO"
+                            md_bg_color: app.accent_color if root.data_confidence == "CONFIRMED" else app.card_color
+                            on_release: app.select_close_confidence("CONFIRMED")
+
+                        MDRaisedButton:
+                            text: "PARCIAL"
+                            md_bg_color: app.accent_color if root.data_confidence == "PARTIAL" else app.card_color
+                            on_release: app.select_close_confidence("PARTIAL")
+
+                MDRaisedButton:
+                    text: "CERRAR Y VER MI RESULTADO"
+                    size_hint_y: None
+                    height: dp(56)
+                    md_bg_color: app.accent_color
+                    on_release: app.save_smart_close()
+
+                MDFlatButton:
+                    text: "VOLVER SIN CERRAR"
+                    size_hint_y: None
+                    height: dp(48)
+                    on_release: app.cancel_smart_close()
+
+
+<DayStoryScreen>:
+    name: "day_story"
+    MDBoxLayout:
+        orientation: "vertical"
+        md_bg_color: app.bg_color
+
+        MDTopAppBar:
+            title: "Tu jornada"
+            md_bg_color: app.bg_color
+
+        ScrollView:
+            do_scroll_x: False
+
+            MDBoxLayout:
+                orientation: "vertical"
+                padding: [dp(16), dp(12), dp(16), dp(32)]
+                spacing: dp(12)
+                size_hint_y: None
+                height: self.minimum_height
+
+                MDLabel:
+                    text: root.title_text
+                    font_style: "H5"
+                    bold: True
+                    size_hint_y: None
+                    height: dp(44)
+
+                MDCard:
+                    orientation: "vertical"
+                    padding: dp(18)
+                    spacing: dp(6)
+                    radius: [22,22,22,22]
+                    md_bg_color: app.primary_color
+                    size_hint_y: None
+                    height: dp(206)
+
+                    MDLabel:
+                        text: root.confidence_text
+                        theme_text_color: "Custom"
+                        text_color: app.primary_muted_text_color
+                        font_style: "Caption"
+                        size_hint_y: None
+                        height: dp(26)
+
+                    MDLabel:
+                        text: root.net_text
+                        theme_text_color: "Custom"
+                        text_color: app.primary_text_color
+                        font_style: "H3"
+                        bold: True
+                        size_hint_y: None
+                        height: dp(64)
+
+                    MDLabel:
+                        text: "Esto quedó realmente para vos"
+                        theme_text_color: "Custom"
+                        text_color: app.primary_text_color
+                        bold: True
+                        size_hint_y: None
+                        height: dp(30)
+
+                    MDLabel:
+                        text: root.equation_text
+                        theme_text_color: "Custom"
+                        text_color: app.primary_muted_text_color
+                        font_style: "Caption"
+                        text_size: self.width, None
+                        size_hint_y: None
+                        height: dp(50)
+
+                MDGridLayout:
+                    cols: 2
+                    spacing: dp(10)
+                    size_hint_y: None
+                    height: dp(105)
+
+                    StatCard:
+                        MDLabel:
+                            text: "POR HORA"
+                            theme_text_color: "Custom"
+                            text_color: app.muted_color
+                            font_style: "Caption"
+                        MDLabel:
+                            text: root.hourly_text
+                            font_style: "H6"
+                            bold: True
+
+                    StatCard:
+                        MDLabel:
+                            text: "POR KM"
+                            theme_text_color: "Custom"
+                            text_color: app.muted_color
+                            font_style: "Caption"
+                        MDLabel:
+                            text: root.per_km_text
+                            font_style: "H6"
+                            bold: True
+
+                MDCard:
+                    orientation: "vertical"
+                    padding: dp(16)
+                    spacing: dp(8)
+                    radius: [18,18,18,18]
+                    md_bg_color: app.card_color
+                    size_hint_y: None
+                    height: dp(196)
+
+                    MDLabel:
+                        text: root.insight_title
+                        font_style: "H6"
+                        bold: True
+                        size_hint_y: None
+                        height: dp(38)
+
+                    MDLabel:
+                        text: root.insight_text
+                        theme_text_color: "Custom"
+                        text_color: app.muted_color
+                        text_size: self.width, None
+                        size_hint_y: None
+                        height: dp(58)
+
+                    MDLabel:
+                        text: root.next_action_text
+                        bold: True
+                        text_size: self.width, None
+                        size_hint_y: None
+                        height: dp(58)
+
+                MDLabel:
+                    text: root.why_text
+                    theme_text_color: "Custom"
+                    text_color: app.muted_color
+                    font_style: "Caption"
+                    text_size: self.width, None
+                    size_hint_y: None
+                    height: self.texture_size[1] + dp(12)
+
+                MDRaisedButton:
+                    text: "VOLVER AL INICIO"
+                    size_hint_y: None
+                    height: dp(56)
+                    md_bg_color: app.accent_color
+                    on_release: app.finish_day_story()
 
 
 <SessionsScreen>:
@@ -1819,7 +2247,29 @@ class CashScreen(Screen):
     total_text = StringProperty("$0")
     profit_text = StringProperty("$0")
     profit_detail_text = StringProperty("Ingresos menos combustible y gastos")
+    reconciliation_text = StringProperty("Todos los cobros conocidos están clasificados.")
     session_action_text = StringProperty("ABRIR JORNADA")
+
+
+class SmartCloseScreen(Screen):
+    show_details = BooleanProperty(False)
+    data_confidence = StringProperty("PARTIAL")
+    registered_costs_text = StringProperty(
+        "Todavía no hay gastos ni cargas registrados en esta jornada."
+    )
+
+
+class DayStoryScreen(Screen):
+    title_text = StringProperty("¡Jornada cerrada!")
+    confidence_text = StringProperty("CIERRE PARCIAL · NAFTA ESTIMADA")
+    net_text = StringProperty("$0")
+    equation_text = StringProperty("$0 ingresos − $0 nafta − $0 gastos")
+    hourly_text = StringProperty("$0/h")
+    per_km_text = StringProperty("$0/km")
+    insight_title = StringProperty("Ya sabés qué te quedó")
+    insight_text = StringProperty("Tu jornada quedó guardada.")
+    next_action_text = StringProperty("Usá este resultado como referencia mañana.")
+    why_text = StringProperty("Te mostramos esto porque acabás de cerrar la jornada.")
 
 
 class SessionsScreen(Screen):
@@ -1940,6 +2390,11 @@ class DriverControlApp(MDApp):
             raise
 
     def _create_or_migrate_db(self):
+        current_version = int(self.conn.execute("PRAGMA user_version").fetchone()[0])
+        if current_version > DB_SCHEMA_VERSION:
+            raise RuntimeError(
+                "La base de datos fue creada por una versión más nueva de Driver Control."
+            )
         with self.transaction():
             self.conn.execute(
                 """
@@ -1999,6 +2454,27 @@ class DriverControlApp(MDApp):
                 CREATE TABLE IF NOT EXISTS settings(
                     key TEXT PRIMARY KEY,
                     value TEXT NOT NULL
+                )
+                """
+            )
+            self.conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS session_summaries(
+                    session_id INTEGER PRIMARY KEY,
+                    income_total REAL NOT NULL DEFAULT 0 CHECK(income_total >= 0),
+                    trip_count INTEGER NOT NULL DEFAULT 0 CHECK(trip_count >= 0),
+                    cash_collected REAL CHECK(cash_collected >= 0),
+                    mp_collected REAL CHECK(mp_collected >= 0),
+                    app_collected REAL CHECK(app_collected >= 0),
+                    uber_fee REAL NOT NULL DEFAULT 0 CHECK(uber_fee >= 0),
+                    uber_owes REAL NOT NULL DEFAULT 0 CHECK(uber_owes >= 0),
+                    driver_owes REAL NOT NULL DEFAULT 0 CHECK(driver_owes >= 0),
+                    confidence TEXT NOT NULL DEFAULT 'PARTIAL'
+                        CHECK(confidence IN ('CONFIRMED','PARTIAL')),
+                    source_mode TEXT NOT NULL DEFAULT 'QUICK'
+                        CHECK(source_mode IN ('QUICK','DETAILED','OCR')),
+                    updated_at TEXT NOT NULL,
+                    FOREIGN KEY(session_id) REFERENCES work_sessions(id) ON DELETE CASCADE
                 )
                 """
             )
@@ -2152,6 +2628,7 @@ class DriverControlApp(MDApp):
             self.conn.execute(
                 "INSERT OR IGNORE INTO settings(key,value) VALUES('dark_mode','0')"
             )
+            self.conn.execute(f"PRAGMA user_version={DB_SCHEMA_VERSION}")
             self.conn.execute(
                 "INSERT OR IGNORE INTO settings(key,value) VALUES('ai_server_url',?)",
                 (DEFAULT_AI_SERVER_URL,),
@@ -2458,6 +2935,24 @@ class DriverControlApp(MDApp):
             raise ValidationError(f"{field_name}: ingresá un número entero.")
         return int(value)
 
+    def _parse_optional_non_negative_float(
+        self,
+        raw: str,
+        field_name: str,
+    ) -> Optional[float]:
+        if not (raw or "").strip():
+            return None
+        return self._parse_non_negative_float(raw, field_name)
+
+    def _parse_optional_non_negative_int(
+        self,
+        raw: str,
+        field_name: str,
+    ) -> Optional[int]:
+        if not (raw or "").strip():
+            return None
+        return self._parse_non_negative_int(raw, field_name)
+
     def _normalize_payment(self, raw: str) -> str:
         normalized = (raw or "").strip().casefold()
         aliases = {
@@ -2551,11 +3046,354 @@ class DriverControlApp(MDApp):
             self.show_message("Error", "No se pudo abrir la jornada.")
 
     def close_session_dialog(self):
-        fields = [
-            ("odometer", "Odómetro final", True),
-            ("cash", "Efectivo contado al cierre", True),
-        ]
-        self.input_dialog("Cerrar jornada", fields, self.save_close_session)
+        self.open_smart_close()
+
+    def _session_summary(self, session_id: int):
+        return self.conn.execute(
+            "SELECT * FROM session_summaries WHERE session_id=?",
+            (session_id,),
+        ).fetchone()
+
+    def open_smart_close(self):
+        session = self._active_session()
+        if session is None:
+            self.show_message("Cierre inteligente", "No hay una jornada abierta.")
+            return
+
+        session_id = int(session["id"])
+        trip = self.conn.execute(
+            """
+            SELECT COALESCE(SUM(amount),0) income,
+                   COALESCE(SUM(uber_fee),0) uber_fee,
+                   COUNT(*) trips,
+                   COALESCE(SUM(CASE WHEN payment=? THEN amount ELSE 0 END),0) cash_total,
+                   COALESCE(SUM(CASE WHEN payment=? THEN amount ELSE 0 END),0) mp_total
+            FROM trips WHERE session_id=?
+            """,
+            (PAYMENT_CASH, PAYMENT_MP, session_id),
+        ).fetchone()
+        summary = self._session_summary(session_id)
+        screen = self.root.get_screen("smart_close")
+
+        def field_value(value, *, blank_zero=False):
+            if value is None or (blank_zero and float(value) == 0):
+                return ""
+            return self._compact_number(float(value))
+
+        income = summary["income_total"] if summary else trip["income"]
+        trip_count = summary["trip_count"] if summary else trip["trips"]
+        cash_collected = summary["cash_collected"] if summary else trip["cash_total"]
+        mp_collected = summary["mp_collected"] if summary else trip["mp_total"]
+        uber_fee = summary["uber_fee"] if summary else trip["uber_fee"]
+
+        screen.ids.close_income.text = field_value(income)
+        screen.ids.close_trip_count.text = field_value(trip_count, blank_zero=True)
+        screen.ids.close_cash_collected.text = field_value(cash_collected, blank_zero=True)
+        screen.ids.close_mp_collected.text = field_value(mp_collected, blank_zero=True)
+        screen.ids.close_app_collected.text = field_value(
+            summary["app_collected"] if summary else None,
+            blank_zero=True,
+        )
+        screen.ids.close_uber_fee.text = field_value(uber_fee, blank_zero=True)
+        screen.ids.close_uber_owes.text = field_value(
+            summary["uber_owes"] if summary else None,
+            blank_zero=True,
+        )
+        screen.ids.close_driver_owes.text = field_value(
+            summary["driver_owes"] if summary else None,
+            blank_zero=True,
+        )
+        current_odometer = max(
+            float(session["opening_odometer"] or 0.0),
+            float(session["current_odometer"] or 0.0),
+        )
+        screen.ids.close_odometer.text = field_value(current_odometer)
+        screen.ids.close_cash_counted.text = field_value(
+            session["closing_cash"],
+            blank_zero=True,
+        )
+        screen.show_details = bool(summary)
+        screen.data_confidence = summary["confidence"] if summary else "PARTIAL"
+        self._refresh_smart_close_costs(session_id)
+        self.root.current = "smart_close"
+
+    def _refresh_smart_close_costs(self, session_id: int):
+        screen = self.root.get_screen("smart_close")
+        expenses = self.conn.execute(
+            """
+            SELECT COALESCE(SUM(amount),0) value
+            FROM expenses
+            WHERE session_id=? AND lower(category)!='combustible'
+            """,
+            (session_id,),
+        ).fetchone()["value"]
+        fuel = self.conn.execute(
+            """
+            SELECT COALESCE(SUM(liters),0) liters, COALESCE(SUM(amount),0) amount
+            FROM fuel WHERE session_id=?
+            """,
+            (session_id,),
+        ).fetchone()
+        screen.registered_costs_text = (
+            f"Ya cargado: {self.money(float(expenses or 0))} en otros gastos · "
+            f"{float(fuel['liters'] or 0):.2f} L de nafta "
+            f"({self.money(float(fuel['amount'] or 0))})."
+        )
+
+    def toggle_smart_close_details(self):
+        screen = self.root.get_screen("smart_close")
+        screen.show_details = not screen.show_details
+
+    def select_close_confidence(self, confidence: str):
+        if confidence in ("CONFIRMED", "PARTIAL"):
+            self.root.get_screen("smart_close").data_confidence = confidence
+
+    def cancel_smart_close(self):
+        self.root.current = "cash"
+        self.refresh_all()
+
+    def save_smart_close(self):
+        screen = self.root.get_screen("smart_close")
+        try:
+            session = self._active_session()
+            if session is None:
+                raise ValidationError("No hay una jornada abierta.")
+            session_id = int(session["id"])
+            income = self._parse_non_negative_float(
+                screen.ids.close_income.text or "0",
+                "Total de Uber",
+            )
+            trip_count = self._parse_optional_non_negative_int(
+                screen.ids.close_trip_count.text,
+                "Cantidad de viajes",
+            )
+            cash_collected = self._parse_optional_non_negative_float(
+                screen.ids.close_cash_collected.text,
+                "Efectivo cobrado",
+            )
+            mp_collected = self._parse_optional_non_negative_float(
+                screen.ids.close_mp_collected.text,
+                "Mercado Pago",
+            )
+            app_collected = self._parse_optional_non_negative_float(
+                screen.ids.close_app_collected.text,
+                "Transferido por Uber",
+            )
+            uber_fee = self._parse_optional_non_negative_float(
+                screen.ids.close_uber_fee.text,
+                "Comisión Uber",
+            )
+            uber_owes = self._parse_optional_non_negative_float(
+                screen.ids.close_uber_owes.text,
+                "Uber te debe",
+            )
+            driver_owes = self._parse_optional_non_negative_float(
+                screen.ids.close_driver_owes.text,
+                "Deuda con Uber",
+            )
+            closing_cash = self._parse_optional_non_negative_float(
+                screen.ids.close_cash_counted.text,
+                "Efectivo contado",
+            )
+            closing_odometer = self._parse_non_negative_float(
+                screen.ids.close_odometer.text,
+                "Odómetro final",
+            )
+
+            minimum_odometer = max(
+                float(session["opening_odometer"] or 0.0),
+                float(session["current_odometer"] or 0.0),
+            )
+            if closing_odometer < minimum_odometer:
+                raise ValidationError(
+                    f"El odómetro no puede bajar de {minimum_odometer:.0f} km."
+                )
+            known_breakdown = sum(
+                value
+                for value in (cash_collected, mp_collected, app_collected)
+                if value is not None
+            )
+            if known_breakdown > income + 0.01:
+                raise ValidationError(
+                    "Los cobros forman parte del total de Uber: juntos no pueden superarlo."
+                )
+            if (uber_owes or 0) > 0 and (driver_owes or 0) > 0:
+                raise ValidationError(
+                    "Elegí solo un saldo: Uber te debe o vos debés pagarle a Uber."
+                )
+
+            confidence = screen.data_confidence
+            source_mode = "DETAILED" if screen.show_details else "QUICK"
+            now = datetime.now().strftime(DATETIME_FORMAT)
+
+            with self.transaction():
+                self.conn.execute(
+                    """
+                    INSERT INTO session_summaries(
+                        session_id,income_total,trip_count,cash_collected,
+                        mp_collected,app_collected,uber_fee,uber_owes,
+                        driver_owes,confidence,source_mode,updated_at
+                    ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)
+                    ON CONFLICT(session_id) DO UPDATE SET
+                        income_total=excluded.income_total,
+                        trip_count=excluded.trip_count,
+                        cash_collected=excluded.cash_collected,
+                        mp_collected=excluded.mp_collected,
+                        app_collected=excluded.app_collected,
+                        uber_fee=excluded.uber_fee,
+                        uber_owes=excluded.uber_owes,
+                        driver_owes=excluded.driver_owes,
+                        confidence=excluded.confidence,
+                        source_mode=excluded.source_mode,
+                        updated_at=excluded.updated_at
+                    """,
+                    (
+                        session_id,
+                        income,
+                        int(trip_count or 0),
+                        cash_collected,
+                        mp_collected,
+                        app_collected,
+                        float(uber_fee or 0.0),
+                        float(uber_owes or 0.0),
+                        float(driver_owes or 0.0),
+                        confidence,
+                        source_mode,
+                        now,
+                    ),
+                )
+                metrics = self._session_metrics(session_id, closing_odometer)
+                difference = None
+                if closing_cash is not None and metrics["cash_reconciliation_known"]:
+                    difference = closing_cash - metrics["cash_expected"]
+                self.conn.execute(
+                    """
+                    UPDATE driver_breaks
+                    SET ended_at=?
+                    WHERE session_id=? AND ended_at IS NULL
+                    """,
+                    (now, session_id),
+                )
+                self.conn.execute(
+                    """
+                    UPDATE work_sessions
+                    SET closed_at=?,closing_odometer=?,closing_cash=?,
+                        current_odometer=?,cash_expected=?,cash_difference=?,
+                        status='CLOSED'
+                    WHERE id=?
+                    """,
+                    (
+                        now,
+                        closing_odometer,
+                        closing_cash,
+                        closing_odometer,
+                        metrics["cash_expected"],
+                        difference,
+                        session_id,
+                    ),
+                )
+
+            self.refresh_all()
+            self._prepare_day_story(session_id)
+        except ValidationError as exc:
+            self.show_message("Revisá el cierre", str(exc))
+        except Exception:
+            LOGGER.exception("Could not save smart close")
+            self.show_message(
+                "No se pudo cerrar",
+                "La jornada sigue abierta y tus datos anteriores están intactos.",
+            )
+
+    def _session_worked_minutes(self, session_id: int) -> float:
+        session = self.conn.execute(
+            "SELECT opened_at,closed_at FROM work_sessions WHERE id=?",
+            (session_id,),
+        ).fetchone()
+        if session is None:
+            return 0.0
+        try:
+            opened = datetime.strptime(session["opened_at"], DATETIME_FORMAT)
+            closed = (
+                datetime.strptime(session["closed_at"], DATETIME_FORMAT)
+                if session["closed_at"]
+                else datetime.now()
+            )
+            break_seconds = 0.0
+            rows = self.conn.execute(
+                "SELECT started_at,ended_at FROM driver_breaks WHERE session_id=?",
+                (session_id,),
+            ).fetchall()
+            for row in rows:
+                started = datetime.strptime(row["started_at"], DATETIME_FORMAT)
+                ended = (
+                    datetime.strptime(row["ended_at"], DATETIME_FORMAT)
+                    if row["ended_at"]
+                    else closed
+                )
+                break_seconds += max(0.0, (ended - started).total_seconds())
+            elapsed = max(0.0, (closed - opened).total_seconds() - break_seconds)
+            return elapsed / 60.0
+        except (TypeError, ValueError):
+            return 0.0
+
+    def _prepare_day_story(self, session_id: int):
+        metrics = self._session_metrics(session_id)
+        summary = self._session_summary(session_id)
+        session = self.conn.execute(
+            "SELECT cash_difference FROM work_sessions WHERE id=?",
+            (session_id,),
+        ).fetchone()
+        confidence = summary["confidence"] if summary else "PARTIAL"
+        worked_minutes = self._session_worked_minutes(session_id)
+        hourly = (
+            metrics["net"] * 60.0 / worked_minutes
+            if worked_minutes > 0 else 0.0
+        )
+        per_km = (
+            metrics["net"] / metrics["worked_km"]
+            if metrics["worked_km"] > 0 else 0.0
+        )
+        ranked = rank_financial_insights(
+            {
+                "income": metrics["revenue"],
+                "profit": metrics["net"],
+                "fuel_cost": metrics["fuel_cost"],
+                "expenses": metrics["operating_expenses"],
+            },
+            daily_goal=self._setting_float("daily_goal", DEFAULT_DAILY_GOAL),
+            confidence=confidence,
+            cash_difference=(
+                float(session["cash_difference"])
+                if session and session["cash_difference"] is not None
+                else None
+            ),
+            limit=1,
+        )
+        insight = ranked[0]
+        story = self.root.get_screen("day_story")
+        story.title_text = "¡Jornada cerrada!"
+        story.confidence_text = (
+            "DATOS CONFIRMADOS · NAFTA ESTIMADA"
+            if confidence == "CONFIRMED"
+            else "CIERRE PARCIAL · PODÉS COMPLETARLO"
+        )
+        story.net_text = self.money(metrics["net"])
+        story.equation_text = (
+            f"{self.money(metrics['revenue'])} ingresos − "
+            f"{self.money(metrics['fuel_cost'])} nafta − "
+            f"{self.money(metrics['operating_expenses'])} gastos"
+        )
+        story.hourly_text = f"{self.money(hourly)}/h"
+        story.per_km_text = f"{self.money(per_km)}/km"
+        story.insight_title = insight.title
+        story.insight_text = insight.message
+        story.next_action_text = insight.action
+        story.why_text = f"Te mostramos esto porque {insight.why[:1].lower() + insight.why[1:]}"
+        self.root.current = "day_story"
+
+    def finish_day_story(self):
+        self.root.current = "dashboard"
+        self.refresh_all()
 
     def open_current_odometer_dialog(self):
         session = self._active_session()
@@ -2628,6 +3466,7 @@ class DriverControlApp(MDApp):
             "SELECT COALESCE(SUM(amount),0) amount, COALESCE(SUM(liters),0) liters FROM fuel WHERE session_id=?",
             (session_id,),
         ).fetchone()
+        summary = self._session_summary(session_id)
 
         end_odo = closing_odometer
         if end_odo is None:
@@ -2644,19 +3483,37 @@ class DriverControlApp(MDApp):
         fuel_liters = worked_km * consumption / 100.0
         fuel_cost = fuel_liters * fuel_price
         operating_expenses = float(exp["operating"] or 0.0)
-        revenue = float(trip["revenue"] or 0.0)
-        uber_fee = float(trip["uber_fee"] or 0.0)
+        revenue = float(
+            summary["income_total"] if summary is not None else trip["revenue"] or 0.0
+        )
+        uber_fee = float(
+            summary["uber_fee"] if summary is not None else trip["uber_fee"] or 0.0
+        )
+        trips = int(
+            summary["trip_count"] if summary is not None else trip["trips"] or 0
+        )
         net = revenue - operating_expenses - fuel_cost
+        summary_cash = summary["cash_collected"] if summary is not None else None
+        cash_sales = (
+            float(summary_cash)
+            if summary_cash is not None
+            else float(trip["cash_sales"] or 0.0)
+        )
+        cash_reconciliation_known = (
+            summary is None
+            or summary_cash is not None
+            or int(trip["trips"] or 0) > 0
+        )
         cash_expected = (
             float(session["opening_cash"] or 0.0)
-            + float(trip["cash_sales"] or 0.0)
+            + cash_sales
             - float(exp["cash_paid"] or 0.0)
         )
         return {
             "revenue": revenue,
             "uber_fee": uber_fee,
             "known_billing": revenue + uber_fee,
-            "trips": int(trip["trips"] or 0),
+            "trips": trips,
             "worked_km": worked_km,
             "operating_expenses": operating_expenses,
             "fuel_liters": fuel_liters,
@@ -2665,6 +3522,9 @@ class DriverControlApp(MDApp):
             "fuel_loaded_liters": float(loaded["liters"] or 0.0),
             "net": net,
             "cash_expected": cash_expected,
+            "cash_reconciliation_known": cash_reconciliation_known,
+            "confidence": summary["confidence"] if summary is not None else "CONFIRMED",
+            "source_mode": summary["source_mode"] if summary is not None else "DETAILED",
         }
 
     def save_close_session(self, dialog, widgets):
@@ -3507,6 +4367,7 @@ class DriverControlApp(MDApp):
                 "income": 0.0, "uber_fee": 0.0, "expenses": 0.0,
                 "km": 0.0, "fuel_liters": 0.0, "fuel_cost": 0.0,
                 "profit": 0.0, "trips": 0, "worked_minutes": 0.0,
+                "known_billing": 0.0,
             }
         placeholders = ",".join("?" for _ in dates)
         trip = self.conn.execute(
@@ -3517,6 +4378,24 @@ class DriverControlApp(MDApp):
                    COUNT(*) trips
             FROM trips
             WHERE substr(created_at,1,10) IN ({placeholders})
+              AND (
+                    session_id IS NULL
+                    OR NOT EXISTS(
+                        SELECT 1 FROM session_summaries summary
+                        WHERE summary.session_id=trips.session_id
+                    )
+                  )
+            """,
+            dates,
+        ).fetchone()
+        summaries = self.conn.execute(
+            f"""
+            SELECT COALESCE(SUM(summary.income_total),0) income,
+                   COALESCE(SUM(summary.uber_fee),0) uber_fee,
+                   COALESCE(SUM(summary.trip_count),0) trips
+            FROM session_summaries summary
+            JOIN work_sessions session ON session.id=summary.session_id
+            WHERE substr(session.opened_at,1,10) IN ({placeholders})
             """,
             dates,
         ).fetchone()
@@ -3596,8 +4475,9 @@ class DriverControlApp(MDApp):
         ).fetchone()["v"]
         worked_km += float(orphan_km or 0.0)
 
-        income = float(trip["income"] or 0.0)
-        uber_fee = float(trip["uber_fee"] or 0.0)
+        income = float(trip["income"] or 0.0) + float(summaries["income"] or 0.0)
+        uber_fee = float(trip["uber_fee"] or 0.0) + float(summaries["uber_fee"] or 0.0)
+        trips = int(trip["trips"] or 0) + int(summaries["trips"] or 0)
         expenses = float(expense["expenses"] or 0.0)
         consumption = self._setting_float("fuel_consumption", DEFAULT_FUEL_CONSUMPTION)
         fuel_price = self._setting_float("fuel_price", DEFAULT_FUEL_PRICE)
@@ -3612,7 +4492,7 @@ class DriverControlApp(MDApp):
             "fuel_liters": fuel_liters,
             "fuel_cost": fuel_cost,
             "profit": income - expenses - fuel_cost,
-            "trips": int(trip["trips"] or 0),
+            "trips": trips,
             "worked_minutes": worked_seconds / 60.0,
         }
 
@@ -3640,21 +4520,7 @@ class DriverControlApp(MDApp):
         )
 
     def _income_values_for_dates(self, date_texts):
-        dates = list(date_texts)
-        if not dates:
-            return []
-        placeholders = ",".join("?" for _ in dates)
-        rows = self.conn.execute(
-            f"""
-            SELECT substr(created_at,1,10) date_key, COALESCE(SUM(amount),0) income
-            FROM trips
-            WHERE substr(created_at,1,10) IN ({placeholders})
-            GROUP BY substr(created_at,1,10)
-            """,
-            dates,
-        ).fetchall()
-        by_date = {str(row["date_key"]): float(row["income"] or 0.0) for row in rows}
-        return [by_date.get(date_text, 0.0) for date_text in dates]
+        return [self._range_metrics([date_text])["income"] for date_text in date_texts]
 
     def _current_odometer(self) -> float:
         values = []
@@ -3855,6 +4721,8 @@ class DriverControlApp(MDApp):
             "ACTIVAR MODO CLARO" if self.setting("dark_mode", "0") == "1"
             else "ACTIVAR MODO OSCURO"
         )
+        if session is not None and self.root.current == "smart_close":
+            self._refresh_smart_close_costs(int(session["id"]))
 
     def _refresh_cash_summary(self, date_text: str):
         rows = self.conn.execute(
@@ -3866,6 +4734,13 @@ class DriverControlApp(MDApp):
                 COALESCE(SUM(change_given), 0) AS change_total
             FROM trips
             WHERE substr(created_at,1,10)=?
+              AND (
+                    session_id IS NULL
+                    OR NOT EXISTS(
+                        SELECT 1 FROM session_summaries summary
+                        WHERE summary.session_id=trips.session_id
+                    )
+                  )
             GROUP BY payment
             """,
             (date_text,),
@@ -3887,7 +4762,27 @@ class DriverControlApp(MDApp):
                 cash_received += float(row["received_total"] or 0.0)
                 change_given += float(row["change_total"] or 0.0)
 
-        total_day = sum(totals.values())
+        summaries = self.conn.execute(
+            """
+            SELECT summary.cash_collected, summary.mp_collected,
+                   summary.app_collected
+            FROM session_summaries summary
+            JOIN work_sessions session ON session.id=summary.session_id
+            WHERE substr(session.opened_at,1,10)=?
+            """,
+            (date_text,),
+        ).fetchall()
+        for summary in summaries:
+            if summary["cash_collected"] is not None:
+                totals[PAYMENT_CASH] += float(summary["cash_collected"])
+            if summary["mp_collected"] is not None:
+                totals[PAYMENT_MP] += float(summary["mp_collected"])
+            if summary["app_collected"] is not None:
+                totals[PAYMENT_UBER] += float(summary["app_collected"])
+
+        total_day = self._range_metrics([date_text])["income"]
+        classified_total = sum(totals.values())
+        unclassified = max(total_day - classified_total, 0.0)
         cash_kept = totals[PAYMENT_CASH]
 
         screen = self.root.get_screen("cash")
@@ -3899,6 +4794,12 @@ class DriverControlApp(MDApp):
         screen.change_text = f"Vuelto entregado: {self.money(change_given)}"
         screen.cash_kept_text = f"Efectivo neto por viajes: {self.money(cash_kept)}"
         screen.total_text = self.money(total_day)
+        screen.reconciliation_text = (
+            f"Falta clasificar {self.money(unclassified)} por medio de cobro. "
+            "No lo asignamos automáticamente."
+            if unclassified > 0.01
+            else "Todos los cobros conocidos están clasificados."
+        )
 
     def _normalize_payment_for_report(self, raw: str) -> str:
         try:

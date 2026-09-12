@@ -221,6 +221,14 @@ def _session_summary(connection, settings):
     output = []
     for session in sessions:
         session_id = session["id"]
+        smart_summary = None
+        if _table_exists(connection, "session_summaries"):
+            matches = _select(
+                connection,
+                "SELECT * FROM session_summaries WHERE session_id=?",
+                (session_id,),
+            )
+            smart_summary = matches[0] if matches else None
         trip = _select(
             connection,
             """
@@ -253,8 +261,16 @@ def _session_summary(connection, settings):
         else:
             worked_km = max(_as_float(effective_odometer) - opening_odometer, 0.0)
 
-        amount = _as_float(trip.get("amount"))
-        uber_fee = _as_float(trip.get("uber_fee"))
+        amount = _as_float(
+            smart_summary.get("income_total") if smart_summary else trip.get("amount")
+        )
+        uber_fee = _as_float(
+            smart_summary.get("uber_fee") if smart_summary else trip.get("uber_fee")
+        )
+        trips = (
+            int(smart_summary.get("trip_count") or 0)
+            if smart_summary else int(trip.get("trips") or 0)
+        )
         operating = _as_float(expense.get("operating"))
         fuel_cost = worked_km * consumption / 100.0 * fuel_price
         output.append(
@@ -263,7 +279,7 @@ def _session_summary(connection, settings):
                 "opened_at": session.get("opened_at"),
                 "closed_at": session.get("closed_at"),
                 "status": session.get("status"),
-                "trips": trip.get("trips"),
+                "trips": trips,
                 "amount": amount,
                 "uber_fee": uber_fee,
                 "known_billing": amount + uber_fee,
@@ -273,6 +289,8 @@ def _session_summary(connection, settings):
                 "estimated_result": amount - operating - fuel_cost,
                 "cash_expected": session.get("cash_expected"),
                 "cash_difference": session.get("cash_difference"),
+                "confidence": smart_summary.get("confidence") if smart_summary else "CONFIRMED",
+                "source_mode": smart_summary.get("source_mode") if smart_summary else "DETAILED",
             }
         )
     return output
@@ -283,9 +301,9 @@ def _write_summary(workbook, formats, connection, app_version, settings, summari
     worksheet.set_tab_color("#173B67")
     worksheet.set_column("A:A", 31)
     worksheet.set_column("B:B", 20)
-    worksheet.set_column("C:N", 17)
+    worksheet.set_column("C:P", 17)
     worksheet.set_row(0, 34)
-    worksheet.merge_range("A1:N1", "Driver Control - Exportación completa", formats["title"])
+    worksheet.merge_range("A1:P1", "Driver Control - Exportación completa", formats["title"])
 
     trip_stats = _select(
         connection,
@@ -317,17 +335,32 @@ def _write_summary(workbook, formats, connection, app_version, settings, summari
     estimated_session_result = sum(
         _as_float(row.get("estimated_result")) for row in summaries
     )
+    orphan_stats = _select(
+        connection,
+        "SELECT COUNT(*) AS count, COALESCE(SUM(amount),0) AS amount, "
+        "COALESCE(SUM(uber_fee),0) AS uber_fee FROM trips WHERE session_id IS NULL",
+    )[0]
+    total_income = sum(_as_float(row.get("amount")) for row in summaries) + _as_float(
+        orphan_stats.get("amount")
+    )
+    total_uber_fee = sum(_as_float(row.get("uber_fee")) for row in summaries) + _as_float(
+        orphan_stats.get("uber_fee")
+    )
+    total_trip_count = sum(int(row.get("trips") or 0) for row in summaries) + int(
+        orphan_stats.get("count") or 0
+    )
 
     overview = [
         ("Generado", datetime.now(), "date"),
         ("Versión de la app", app_version, "text"),
         ("Jornadas registradas", len(summaries), "integer"),
-        ("Viajes registrados", trip_stats["count"], "integer"),
-        ("Ingresos registrados", trip_stats["amount"], "money"),
-        ("Comisión Uber informada", trip_stats["uber_fee"], "money"),
+        ("Viajes informados", total_trip_count, "integer"),
+        ("Viajes con detalle individual", trip_stats["count"], "integer"),
+        ("Ingresos conciliados", total_income, "money"),
+        ("Comisión Uber informada", total_uber_fee, "money"),
         (
             "Facturación conocida (ingresos + comisión)",
-            _as_float(trip_stats["amount"]) + _as_float(trip_stats["uber_fee"]),
+            total_income + total_uber_fee,
             "money",
         ),
         ("Ganancia estimada de jornadas", estimated_session_result, "money"),
@@ -349,7 +382,7 @@ def _write_summary(workbook, formats, connection, app_version, settings, summari
             note_row,
             0,
             note_row,
-            13,
+            15,
             f"Revisar {int(incomplete['count'])} viaje(s) con kilómetros o duración en cero.",
             formats["warning"],
         )
@@ -359,10 +392,11 @@ def _write_summary(workbook, formats, connection, app_version, settings, summari
         note_row,
         0,
         note_row + 1,
-        13,
+        15,
         "Ingresos es el monto que el conductor registró. La comisión Uber informada se muestra aparte y no se "
         "descuenta nuevamente. Facturación conocida es ingresos más comisión informada. La ganancia estimada "
-        "resta otros gastos y combustible consumido según kilometraje, consumo y precio configurados.",
+        "resta otros gastos y combustible consumido según kilometraje, consumo y precio configurados. Cuando "
+        "hay un cierre inteligente, sus totales prevalecen sobre el detalle para evitar duplicaciones.",
         formats["note"],
     )
 
@@ -383,6 +417,8 @@ def _write_summary(workbook, formats, connection, app_version, settings, summari
         ("estimated_result", "Resultado estimado", "money"),
         ("cash_expected", "Efectivo esperado", "money"),
         ("cash_difference", "Diferencia de caja", "money"),
+        ("confidence", "Confianza", "text"),
+        ("source_mode", "Origen", "text"),
     ]
     if summaries:
         table_data = [
@@ -466,6 +502,35 @@ def export_driver_control_xlsx(connection, destination, app_version):
                     "current_odometer, closing_odometer, opening_cash, closing_cash, cash_expected, "
                     "cash_difference FROM work_sessions ORDER BY id",
                 ),
+            )
+        )
+        close_rows = []
+        if _table_exists(connection, "session_summaries"):
+            close_rows = _select(
+                connection,
+                "SELECT session_id,income_total,trip_count,cash_collected,mp_collected,"
+                "app_collected,uber_fee,uber_owes,driver_owes,confidence,source_mode,updated_at "
+                "FROM session_summaries ORDER BY session_id",
+            )
+        sheets.append(
+            (
+                "Cierres",
+                "CierresInteligentes",
+                [
+                    ("session_id", "Jornada", "integer", 11),
+                    ("income_total", "Ingresos conciliados", "money", 21),
+                    ("trip_count", "Viajes informados", "integer", 18),
+                    ("cash_collected", "Cobrado en efectivo", "money", 20),
+                    ("mp_collected", "Cobrado por Mercado Pago", "money", 25),
+                    ("app_collected", "Cobrado por aplicación", "money", 22),
+                    ("uber_fee", "Comisión Uber", "money", 18),
+                    ("uber_owes", "Uber debe", "money", 16),
+                    ("driver_owes", "Deuda con Uber", "money", 18),
+                    ("confidence", "Confianza", "text", 15),
+                    ("source_mode", "Origen", "text", 15),
+                    ("updated_at", "Actualizado", "date", 19),
+                ],
+                close_rows,
             )
         )
         trip_rows = _select(
@@ -689,6 +754,7 @@ def export_driver_control_xlsx(connection, destination, app_version):
             "cargas": len(fuel_rows),
             "evaluaciones": len(assessments),
             "mantenimientos": len(maintenance_rows),
+            "cierres": len(close_rows),
             "viajes_incompletos": summary_stats["incomplete_trip_count"],
         }
     finally:

@@ -89,6 +89,15 @@ class FinanceModelTest(unittest.TestCase):
     def tearDown(self):
         self.app.conn.close()
 
+    def test_event_handlers_are_callable(self):
+        """Kivy reserves on_<property> names for property callbacks."""
+        invalid_handlers = [
+            name
+            for name, value in self.main.DriverControlApp.__dict__.items()
+            if name.startswith("on_") and not callable(value)
+        ]
+        self.assertEqual([], invalid_handlers)
+
     def test_money_model_and_cash_reconciliation_are_separate(self):
         now = datetime.now()
         opened = (now - timedelta(hours=1)).strftime(self.main.DATETIME_FORMAT)

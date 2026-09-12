@@ -25,7 +25,7 @@ from kivymd.uix.textfield import MDTextField
 
 
 # ============================================================
-# Driver Control v5.9.0
+# Driver Control v5.9.1
 # Mejoras aplicadas:
 # - Valor actual de nafta dinámico y persistente con respaldo histórico.
 # - Exportación completa de datos operativos a un libro Excel.
@@ -34,7 +34,7 @@ from kivymd.uix.textfield import MDTextField
 # ============================================================
 
 APP_NAME = "Driver Control"
-APP_VERSION = "5.9.0"
+APP_VERSION = "5.9.1"
 DB_FILE = "driver_control.db"
 DATE_FORMAT = "%d/%m/%Y"
 DATETIME_FORMAT = "%d/%m/%Y %H:%M"
@@ -189,7 +189,7 @@ ScreenManager:
                     MDLabel:
                         text: "GANANCIA REAL ESTIMADA · " + root.period_label.upper()
                         theme_text_color: "Custom"
-                        text_color: app.on_primary_muted_color
+                        text_color: app.primary_muted_text_color
                         font_style: "Caption"
                         size_hint_y: None
                         height: dp(24)
@@ -197,7 +197,7 @@ ScreenManager:
                     MDLabel:
                         text: root.net_text
                         theme_text_color: "Custom"
-                        text_color: app.on_primary_color
+                        text_color: app.primary_text_color
                         font_style: "H3"
                         bold: True
                         size_hint_y: None
@@ -206,7 +206,7 @@ ScreenManager:
                     MDLabel:
                         text: root.net_explanation_text
                         theme_text_color: "Custom"
-                        text_color: app.on_primary_muted_color
+                        text_color: app.primary_muted_text_color
                         size_hint_y: None
                         text_size: self.width, None
                         height: dp(42)
@@ -214,7 +214,7 @@ ScreenManager:
                     MDLabel:
                         text: root.efficiency_text
                         theme_text_color: "Custom"
-                        text_color: app.on_primary_color
+                        text_color: app.primary_text_color
                         bold: True
                         size_hint_y: None
                         height: dp(28)
@@ -774,18 +774,18 @@ ScreenManager:
                     MDLabel:
                         text: "GANANCIA REAL ESTIMADA"
                         theme_text_color: "Custom"
-                        text_color: app.on_primary_muted_color
+                        text_color: app.primary_muted_text_color
                         font_style: "Caption"
                     MDLabel:
                         text: root.profit_text
                         theme_text_color: "Custom"
-                        text_color: app.on_primary_color
+                        text_color: app.primary_text_color
                         font_style: "H3"
                         bold: True
                     MDLabel:
                         text: root.profit_detail_text
                         theme_text_color: "Custom"
-                        text_color: app.on_primary_muted_color
+                        text_color: app.primary_muted_text_color
                         font_style: "Caption"
 
                 MDLabel:
@@ -1020,23 +1020,23 @@ ScreenManager:
                     MDLabel:
                         text: "DECISIÓN DEL VIAJE"
                         theme_text_color: "Custom"
-                        text_color: app.on_primary_muted_color
+                        text_color: app.primary_muted_text_color
                         font_style: "Caption"
                     MDLabel:
                         text: root.recommendation_text
                         font_style: "H4"
                         bold: True
                         theme_text_color: "Custom"
-                        text_color: app.on_primary_color
+                        text_color: app.primary_text_color
                     MDLabel:
                         text: root.summary_text
                         theme_text_color: "Custom"
-                        text_color: app.on_primary_color
+                        text_color: app.primary_text_color
                         bold: True
                     MDLabel:
                         text: "Factor decisivo: " + root.reason_text
                         theme_text_color: "Custom"
-                        text_color: app.on_primary_muted_color
+                        text_color: app.primary_muted_text_color
                         font_style: "Caption"
                         text_size: self.width, None
 
@@ -1273,18 +1273,18 @@ ScreenManager:
                     MDLabel:
                         text: "TU AUTO"
                         theme_text_color: "Custom"
-                        text_color: app.on_primary_muted_color
+                        text_color: app.primary_muted_text_color
                         font_style: "Caption"
                     MDLabel:
                         text: root.vehicle_text
                         theme_text_color: "Custom"
-                        text_color: app.on_primary_color
+                        text_color: app.primary_text_color
                         font_style: "H5"
                         bold: True
                     MDLabel:
                         text: root.vehicle_cost_text
                         theme_text_color: "Custom"
-                        text_color: app.on_primary_muted_color
+                        text_color: app.primary_muted_text_color
 
                 MDCard:
                     orientation: "vertical"
@@ -1455,18 +1455,18 @@ ScreenManager:
             MDLabel:
                 text: "PRÓXIMO CONTROL"
                 theme_text_color: "Custom"
-                text_color: app.on_primary_muted_color
+                text_color: app.primary_muted_text_color
                 font_style: "Caption"
             MDLabel:
                 text: root.next_due_text
                 theme_text_color: "Custom"
-                text_color: app.on_primary_color
+                text_color: app.primary_text_color
                 font_style: "H6"
                 bold: True
             MDLabel:
                 text: "Registrá aceite, filtros, frenos, cubiertas y reparaciones."
                 theme_text_color: "Custom"
-                text_color: app.on_primary_muted_color
+                text_color: app.primary_muted_text_color
                 font_style: "Caption"
 
         MDRaisedButton:
@@ -1822,8 +1822,11 @@ class DriverControlApp(MDApp):
     muted_color = ListProperty([0.32, 0.38, 0.45, 1])
     accent_color = ListProperty([0.02, 0.60, 0.64, 1])
     primary_color = ListProperty([0.055, 0.12, 0.20, 1])
-    on_primary_color = ListProperty([1, 1, 1, 1])
-    on_primary_muted_color = ListProperty([0.76, 0.84, 0.90, 1])
+    # Kivy reserves names prefixed with ``on_`` for change callbacks. Keeping
+    # display colors outside that namespace prevents a theme change from
+    # trying to call an ObservableList as though it were a function.
+    primary_text_color = ListProperty([1, 1, 1, 1])
+    primary_muted_text_color = ListProperty([0.76, 0.84, 0.90, 1])
     chart_color = ListProperty([0.44, 0.75, 0.77, 1])
 
     def build(self):
@@ -1861,13 +1864,17 @@ class DriverControlApp(MDApp):
         event = getattr(self, "_clock_event", None)
         if event is not None:
             event.cancel()
+            self._clock_event = None
         wellness_event = getattr(self, "_wellness_event", None)
         if wellness_event is not None:
             wellness_event.cancel()
-        if getattr(self, "conn", None) is not None:
+            self._wellness_event = None
+        connection = getattr(self, "conn", None)
+        self.conn = None
+        if connection is not None:
             try:
-                self.conn.commit()
-                self.conn.close()
+                connection.commit()
+                connection.close()
                 LOGGER.info("Database connection closed cleanly.")
             except Exception:
                 LOGGER.exception("Error while closing database.")
@@ -2308,7 +2315,7 @@ class DriverControlApp(MDApp):
             self.muted_color = [0.65, 0.71, 0.77, 1]
             self.accent_color = [0.18, 0.82, 0.73, 1]
             self.primary_color = [0.03, 0.20, 0.22, 1]
-            self.on_primary_muted_color = [0.72, 0.90, 0.88, 1]
+            self.primary_muted_text_color = [0.72, 0.90, 0.88, 1]
             self.chart_color = [0.16, 0.45, 0.48, 1]
         else:
             self.bg_color = [0.965, 0.976, 0.988, 1]
@@ -2316,9 +2323,9 @@ class DriverControlApp(MDApp):
             self.muted_color = [0.32, 0.38, 0.45, 1]
             self.accent_color = [0.02, 0.60, 0.64, 1]
             self.primary_color = [0.055, 0.12, 0.20, 1]
-            self.on_primary_muted_color = [0.76, 0.84, 0.90, 1]
+            self.primary_muted_text_color = [0.76, 0.84, 0.90, 1]
             self.chart_color = [0.44, 0.75, 0.77, 1]
-        self.on_primary_color = [1, 1, 1, 1]
+        self.primary_text_color = [1, 1, 1, 1]
         if getattr(self, "root", None):
             settings = self.root.get_screen("settings")
             settings.theme_action_text = (
@@ -2326,14 +2333,33 @@ class DriverControlApp(MDApp):
             )
 
     def toggle_theme(self):
-        dark = self.setting("dark_mode", "0") != "1"
-        with self.transaction():
-            self.conn.execute(
-                "INSERT OR REPLACE INTO settings(key,value) VALUES('dark_mode',?)",
-                ("1" if dark else "0",),
+        previous_dark = self.setting("dark_mode", "0") == "1"
+        dark = not previous_dark
+        try:
+            # Apply first: a rendering error must never persist a theme that
+            # could prevent the next startup from completing.
+            self._apply_theme(dark)
+            with self.transaction():
+                self.conn.execute(
+                    "INSERT OR REPLACE INTO settings(key,value) VALUES('dark_mode',?)",
+                    ("1" if dark else "0",),
+                )
+            self.refresh_all()
+        except Exception:
+            LOGGER.exception("Could not switch application theme.")
+            try:
+                with self.transaction():
+                    self.conn.execute(
+                        "INSERT OR REPLACE INTO settings(key,value) VALUES('dark_mode',?)",
+                        ("1" if previous_dark else "0",),
+                    )
+                self._apply_theme(previous_dark)
+            except Exception:
+                LOGGER.exception("Could not restore the previous theme.")
+            self.show_message(
+                "No se pudo cambiar el tema",
+                "La app conservó el modo anterior y puede seguir usándose.",
             )
-        self._apply_theme(dark)
-        self.refresh_all()
 
     def money(self, value: float) -> str:
         return f"${float(value):,.0f}".replace(",", ".")

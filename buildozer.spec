@@ -5,7 +5,7 @@ package.domain = org.drivercontrol
 source.dir = .
 source.include_exts = py,png,jpg,jpeg,kv,atlas,xml,java,md
 source.exclude_dirs = tests
-version = 5.9.0
+version = 5.9.1
 requirements = python3,kivy==2.3.0,kivymd==1.2.0,hostpython3,android,pyjnius,requests,xlsxwriter==3.2.9
 android.gradle_dependencies = com.google.mlkit:text-recognition:16.0.1
 android.permissions = INTERNET,FOREGROUND_SERVICE,POST_NOTIFICATIONS,SYSTEM_ALERT_WINDOW,VIBRATE

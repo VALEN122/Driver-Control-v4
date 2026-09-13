@@ -285,7 +285,7 @@ jobs:
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add             main.py insight_engine.py excel_exporter.py buildozer.spec             tests CHANGELOG_6.1.0.md             android_src android_res android_manifest             ".github/workflows/build-apk.yml"             ".github/workflows/build-apk (1).yml"
+          git add             main.py insight_engine.py excel_exporter.py buildozer.spec             tests CHANGELOG_6.1.0.md             android_src android_res android_manifest
           if git diff --cached --quiet; then
             echo "No hay cambios nuevos para publicar."
           else

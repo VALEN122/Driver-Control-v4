@@ -27,7 +27,7 @@ from insight_engine import rank_financial_insights
 
 
 # ============================================================
-# Driver Control v6.1.1
+# Driver Control v6.1.2
 # Mejoras aplicadas:
 # - Valor actual de nafta dinámico y persistente con respaldo histórico.
 # - Exportación completa de datos operativos a un libro Excel.
@@ -36,7 +36,7 @@ from insight_engine import rank_financial_insights
 # ============================================================
 
 APP_NAME = "Driver Control"
-APP_VERSION = "6.1.1"
+APP_VERSION = "6.1.2"
 DB_FILE = "driver_control.db"
 DB_SCHEMA_VERSION = 2
 DATE_FORMAT = "%d/%m/%Y"
@@ -62,6 +62,10 @@ DEFAULT_ASSISTANT_MAX_PICKUP_KM = 3.0
 DEFAULT_TANK_CAPACITY = 55.0
 DEFAULT_AI_SERVER_URL = ""
 DEFAULT_AI_ACCESS_TOKEN = ""
+
+
+class AndroidFileShareError(RuntimeError):
+    """La exportación se creó, pero Android no pudo abrir el selector."""
 
 PAYMENT_CASH = "Efectivo"
 PAYMENT_MP = "Mercado Pago"
@@ -5918,29 +5922,25 @@ class DriverControlApp(MDApp):
         chooser_title: str,
         subject: str,
     ):
-        from jnius import autoclass, cast
+        from jnius import autoclass
 
         if not export_path.is_file() or export_path.stat().st_size <= 0:
             raise FileNotFoundError(f"Export not found: {export_path}")
 
-        ClipData = autoclass("android.content.ClipData")
-        File = autoclass("java.io.File")
-        FileProvider = autoclass("androidx.core.content.FileProvider")
-        Intent = autoclass("android.content.Intent")
+        DriverFileShare = autoclass(
+            "org.drivercontrol.drivercontrol.DriverFileShare"
+        )
         PythonActivity = autoclass("org.kivy.android.PythonActivity")
-
         current = PythonActivity.mActivity
-        authority = f"{current.getPackageName()}.fileprovider"
-        uri = FileProvider.getUriForFile(current, authority, File(str(export_path)))
-        intent = Intent(Intent.ACTION_SEND)
-        intent.setType(mime_type)
-        intent.putExtra(Intent.EXTRA_STREAM, cast("android.os.Parcelable", uri))
-        intent.putExtra(Intent.EXTRA_SUBJECT, subject)
-        intent.setClipData(ClipData.newRawUri(subject, uri))
-        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        chooser = Intent.createChooser(intent, chooser_title)
-        chooser.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        current.startActivity(chooser)
+        error = DriverFileShare.shareFile(
+            current,
+            str(export_path),
+            mime_type,
+            chooser_title,
+            subject,
+        )
+        if error:
+            raise AndroidFileShareError(str(error))
 
     def _share_excel_on_android(self, export_path: Path):
         self._share_file_on_android(
@@ -5977,6 +5977,13 @@ class DriverControlApp(MDApp):
                 "Esta copia conserva jornadas, viajes, gastos y ajustes.\n" + detail,
             )
             LOGGER.info("Database backup created: %s", backup_path)
+        except AndroidFileShareError as exc:
+            LOGGER.exception("Backup created but Android sharing failed.")
+            self.show_message(
+                "Copia creada, falta compartirla",
+                "Android no pudo abrir el selector. Cerrá y volvé a abrir "
+                f"Driver Control e intentá nuevamente.\nDetalle: {exc}",
+            )
         except Exception:
             LOGGER.exception("Error creating database backup.")
             self.show_message("Error", "No se pudo crear la copia de seguridad.")
@@ -6013,6 +6020,13 @@ class DriverControlApp(MDApp):
                 f"{counts.get('mantenimientos', 0)} mantenimientos\n{detail}",
             )
             LOGGER.info("Complete database exported to XLSX: %s", export_path)
+        except AndroidFileShareError as exc:
+            LOGGER.exception("Excel created but Android sharing failed.")
+            self.show_message(
+                "Excel creado, falta compartirlo",
+                "Android no pudo abrir el selector. Cerrá y volvé a abrir "
+                f"Driver Control e intentá nuevamente.\nDetalle: {exc}",
+            )
         except Exception:
             LOGGER.exception("Error exporting data to XLSX.")
             self.show_message("Error", "No se pudo crear o compartir el archivo Excel.")

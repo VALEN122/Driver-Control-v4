@@ -7,7 +7,8 @@ source.include_exts = py,png,jpg,jpeg,kv,atlas,xml,java,md
 source.exclude_dirs = tests
 icon.filename = %(source.dir)s/assets/branding/driver_control_icon.png
 presplash.filename = %(source.dir)s/assets/branding/driver_control_splash.png
-version = 6.1.1
+android.presplash_color = #041F3E
+version = 6.1.2
 requirements = python3,kivy==2.3.0,kivymd==1.2.0,hostpython3,android,pyjnius,requests,xlsxwriter==3.2.9
 android.gradle_dependencies = com.google.mlkit:text-recognition:16.0.1,androidx.core:core:1.9.0
 android.permissions = INTERNET,FOREGROUND_SERVICE,POST_NOTIFICATIONS,SYSTEM_ALERT_WINDOW,VIBRATE

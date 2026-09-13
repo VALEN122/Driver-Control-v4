@@ -33,14 +33,31 @@ class AndroidIntegrationSourceTest(unittest.TestCase):
         source = (ROOT / "main.py").read_text(encoding="utf-8")
         spec = (ROOT / "buildozer.spec").read_text(encoding="utf-8")
 
-        self.assertIn('APP_VERSION = "6.1.0"', source)
+        self.assertIn('APP_VERSION = "6.1.1"', source)
         self.assertIn('text: "DINERO REAL QUE TE QUEDÓ · "', source)
         self.assertIn(
             'dashboard.session_action_text = "FINALIZAR Y VER MI GANANCIA"',
             source,
         )
         self.assertIn("def create_database_backup", source)
-        self.assertIn("version = 6.1.0", spec)
+        self.assertIn("version = 6.1.1", spec)
+
+
+    def test_driver_control_brand_replaces_default_kivy_startup(self):
+        spec = (ROOT / "buildozer.spec").read_text(encoding="utf-8")
+        icon = ROOT / "assets/branding/driver_control_icon.png"
+        splash = ROOT / "assets/branding/driver_control_splash.png"
+
+        self.assertIn(
+            "icon.filename = %(source.dir)s/assets/branding/driver_control_icon.png",
+            spec,
+        )
+        self.assertIn(
+            "presplash.filename = %(source.dir)s/assets/branding/driver_control_splash.png",
+            spec,
+        )
+        self.assertGreater(icon.stat().st_size, 100_000)
+        self.assertGreater(splash.stat().st_size, 100_000)
 
 
 if __name__ == "__main__":

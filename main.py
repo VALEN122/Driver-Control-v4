@@ -27,7 +27,7 @@ from insight_engine import rank_financial_insights
 
 
 # ============================================================
-# Driver Control v6.0.0
+# Driver Control v6.1.0
 # Mejoras aplicadas:
 # - Valor actual de nafta dinámico y persistente con respaldo histórico.
 # - Exportación completa de datos operativos a un libro Excel.
@@ -36,7 +36,7 @@ from insight_engine import rank_financial_insights
 # ============================================================
 
 APP_NAME = "Driver Control"
-APP_VERSION = "6.0.0"
+APP_VERSION = "6.1.0"
 DB_FILE = "driver_control.db"
 DB_SCHEMA_VERSION = 2
 DATE_FORMAT = "%d/%m/%Y"
@@ -155,74 +155,93 @@ ScreenManager:
 
         MDTopAppBar:
             title: "Driver Control"
+            elevation: 0
             md_bg_color: app.bg_color
-            right_action_items: [["shield-check", lambda x: app.go("assistant")]]
+            right_action_items: [["cog-outline", lambda x: app.go("settings")]]
 
         ScrollView:
+            do_scroll_x: False
             MDBoxLayout:
                 orientation: "vertical"
-                padding: [dp(16), dp(8), dp(16), dp(24)]
-                spacing: dp(12)
+                padding: [dp(16), dp(6), dp(16), dp(28)]
+                spacing: dp(14)
                 adaptive_height: True
 
                 MDBoxLayout:
                     size_hint_y: None
-                    height: dp(64)
+                    height: dp(58)
                     spacing: dp(8)
                     MDBoxLayout:
                         orientation: "vertical"
-                        size_hint_x: .62
+                        size_hint_x: .76
                         MDLabel:
-                            text: "Tu día al volante"
+                            text: root.greeting_text
                             bold: True
-                            font_style: "H6"
+                            font_style: "H5"
                             size_hint_y: None
-                            height: dp(34)
+                            height: dp(32)
                         MDLabel:
                             text: root.current_datetime_text
                             theme_text_color: "Custom"
                             text_color: app.muted_color
                             font_style: "Caption"
                             size_hint_y: None
-                            height: dp(26)
+                            height: dp(24)
+                    MDLabel:
+                        text: "v" + app.version_text
+                        size_hint_x: .24
+                        halign: "right"
+                        valign: "middle"
+                        font_style: "Caption"
+                        theme_text_color: "Custom"
+                        text_color: app.accent_color
+
+                MDCard:
+                    padding: dp(3)
+                    radius: [14,14,14,14]
+                    elevation: 0
+                    md_bg_color: app.soft_surface_color
+                    size_hint_y: None
+                    height: dp(46)
                     MDFlatButton:
                         text: "HOY"
-                        size_hint_x: .18
+                        size_hint_x: .5
                         theme_text_color: "Custom"
-                        text_color: app.accent_color if root.period_mode == "today" else app.muted_color
+                        text_color: app.primary_color if root.period_mode == "today" else app.muted_color
                         on_release: app.set_dashboard_period("today")
                     MDFlatButton:
-                        text: "7 DÍAS"
-                        size_hint_x: .20
+                        text: "ÚLTIMOS 7 DÍAS"
+                        size_hint_x: .5
                         theme_text_color: "Custom"
-                        text_color: app.accent_color if root.period_mode == "week" else app.muted_color
+                        text_color: app.primary_color if root.period_mode == "week" else app.muted_color
                         on_release: app.set_dashboard_period("week")
 
                 MDCard:
                     orientation: "vertical"
-                    padding: dp(18)
-                    spacing: dp(4)
-                    radius: [22,22,22,22]
+                    padding: dp(20)
+                    spacing: dp(6)
+                    radius: [26,26,26,26]
                     md_bg_color: app.primary_color
                     size_hint_y: None
-                    height: dp(190)
+                    height: dp(244)
 
                     MDLabel:
-                        text: "GANANCIA REAL ESTIMADA · " + root.period_label.upper()
+                        text: "DINERO REAL QUE TE QUEDÓ · " + root.period_label.upper()
                         theme_text_color: "Custom"
                         text_color: app.primary_muted_text_color
                         font_style: "Caption"
+                        bold: True
                         size_hint_y: None
-                        height: dp(24)
+                        height: dp(26)
 
                     MDLabel:
                         text: root.net_text
                         theme_text_color: "Custom"
                         text_color: app.primary_text_color
-                        font_style: "H3"
+                        font_style: "H2"
                         bold: True
                         size_hint_y: None
-                        height: dp(62)
+                        height: dp(72)
 
                     MDLabel:
                         text: root.net_explanation_text
@@ -230,111 +249,223 @@ ScreenManager:
                         text_color: app.primary_muted_text_color
                         size_hint_y: None
                         text_size: self.width, None
-                        height: dp(42)
+                        height: self.texture_size[1] + dp(8)
 
-                    MDLabel:
-                        text: root.efficiency_text
-                        theme_text_color: "Custom"
-                        text_color: app.primary_text_color
-                        bold: True
+                    MDBoxLayout:
                         size_hint_y: None
-                        height: dp(28)
+                        height: dp(42)
+                        spacing: dp(8)
+                        MDLabel:
+                            text: root.efficiency_text
+                            theme_text_color: "Custom"
+                            text_color: app.primary_text_color
+                            bold: True
+                        MDLabel:
+                            text: root.data_status_text
+                            halign: "right"
+                            theme_text_color: "Custom"
+                            text_color: app.primary_muted_text_color
+                            font_style: "Caption"
 
                 MDCard:
                     orientation: "vertical"
-                    padding: dp(16)
-                    spacing: dp(6)
-                    radius: [18,18,18,18]
+                    padding: dp(18)
+                    spacing: dp(8)
+                    radius: [22,22,22,22]
                     md_bg_color: app.card_color
                     size_hint_y: None
-                    height: dp(374)
+                    height: dp(214)
+
+                    MDBoxLayout:
+                        size_hint_y: None
+                        height: dp(58)
+                        spacing: dp(8)
+                        MDBoxLayout:
+                            orientation: "vertical"
+                            MDLabel:
+                                text: root.session_status_text
+                                font_style: "H6"
+                                bold: True
+                            MDLabel:
+                                text: root.session_time_text
+                                theme_text_color: "Custom"
+                                text_color: app.muted_color
+                                font_style: "Caption"
+                        MDLabel:
+                            text: "EN CURSO" if root.session_active else "LISTO"
+                            size_hint_x: .28
+                            halign: "right"
+                            bold: True
+                            font_style: "Caption"
+                            theme_text_color: "Custom"
+                            text_color: app.success_color if root.session_active else app.accent_color
 
                     MDLabel:
-                        text: "Así se forma tu ganancia"
+                        text: root.session_helper_text
+                        theme_text_color: "Custom"
+                        text_color: app.muted_color
+                        text_size: self.width, None
+                        size_hint_y: None
+                        height: self.texture_size[1] + dp(4)
+
+                    MDRaisedButton:
+                        text: root.session_action_text
+                        size_hint_y: None
+                        height: dp(52)
+                        md_bg_color: app.warning_color if root.session_active else app.accent_color
+                        on_release: app.toggle_work_session()
+
+                MDLabel:
+                    text: "Acciones rápidas"
+                    font_style: "Subtitle1"
+                    bold: True
+                    size_hint_y: None
+                    height: dp(30)
+
+                MDGridLayout:
+                    cols: 2
+                    spacing: dp(10)
+                    size_hint_y: None
+                    height: dp(112)
+                    MDRaisedButton:
+                        text: "+ CARGAR VIAJE"
+                        md_bg_color: app.accent_color
+                        theme_text_color: "Custom"
+                        text_color: app.primary_text_color
+                        on_release: app.open_trip_dialog()
+                    MDRaisedButton:
+                        text: "+ CARGAR GASTO"
+                        md_bg_color: app.primary_color
+                        theme_text_color: "Custom"
+                        text_color: app.primary_text_color
+                        on_release: app.open_expense_dialog()
+                    MDFlatButton:
+                        text: "VUELTO RÁPIDO"
+                        on_release: app.go("cash")
+                    MDFlatButton:
+                        text: "VER HISTORIAL"
+                        on_release: app.go("trips")
+
+                MDCard:
+                    orientation: "vertical"
+                    padding: dp(18)
+                    spacing: dp(8)
+                    radius: [22,22,22,22]
+                    md_bg_color: app.card_color
+                    size_hint_y: None
+                    height: dp(158)
+
+                    MDLabel:
+                        text: "Tu meta " + root.period_label.lower()
                         font_style: "H6"
                         bold: True
                         size_hint_y: None
                         height: dp(32)
+                    MDLabel:
+                        text: root.goal_text
+                        theme_text_color: "Custom"
+                        text_color: app.muted_color
+                        size_hint_y: None
+                        height: dp(28)
+                    MDProgressBar:
+                        value: root.goal_percent
+                        max: 100
+                        size_hint_y: None
+                        height: dp(8)
+                    MDLabel:
+                        text: root.daily_remaining_text
+                        theme_text_color: "Custom"
+                        text_color: root.goal_message_color
+                        bold: True
+                        size_hint_y: None
+                        height: dp(30)
+
+                MDCard:
+                    orientation: "vertical"
+                    padding: dp(18)
+                    spacing: dp(8)
+                    radius: [22,22,22,22]
+                    md_bg_color: app.insight_surface_color
+                    size_hint_y: None
+                    height: dp(174)
+
+                    MDLabel:
+                        text: "PARA VOS"
+                        font_style: "Caption"
+                        bold: True
+                        theme_text_color: "Custom"
+                        text_color: app.accent_color
+                        size_hint_y: None
+                        height: dp(24)
+                    MDLabel:
+                        text: root.insight_title_text
+                        font_style: "H6"
+                        bold: True
+                        text_size: self.width, None
+                        size_hint_y: None
+                        height: self.texture_size[1] + dp(4)
+                    MDLabel:
+                        text: root.insight_body_text
+                        theme_text_color: "Custom"
+                        text_color: app.muted_color
+                        text_size: self.width, None
+                        size_hint_y: None
+                        height: self.texture_size[1] + dp(4)
+
+                MDCard:
+                    orientation: "vertical"
+                    padding: dp(18)
+                    spacing: dp(8)
+                    radius: [22,22,22,22]
+                    md_bg_color: app.card_color
+                    size_hint_y: None
+                    height: dp(276)
+
+                    MDLabel:
+                        text: "Cómo llegamos a tu ganancia"
+                        font_style: "H6"
+                        bold: True
+                        size_hint_y: None
+                        height: dp(34)
+
                     MDBoxLayout:
                         orientation: "vertical"
-                        spacing: dp(0)
                         size_hint_y: None
-                        height: dp(240)
-
+                        height: dp(160)
                         MDBoxLayout:
-                            size_hint_y: None
-                            height: dp(40)
                             MDLabel:
-                                text: "Facturación conocida"
-                                size_hint_x: .72
-                                theme_text_color: "Custom"
-                                text_color: app.muted_color
-                            MDLabel:
-                                text: root.revenue_text
-                                size_hint_x: .28
-                                halign: "right"
-                                bold: True
-                        MDBoxLayout:
-                            size_hint_y: None
-                            height: dp(40)
-                            MDLabel:
-                                text: "Ingresos registrados"
-                                size_hint_x: .72
+                                text: "Ingresos"
                                 theme_text_color: "Custom"
                                 text_color: app.muted_color
                             MDLabel:
                                 text: root.income_text
-                                size_hint_x: .28
                                 halign: "right"
                                 bold: True
                         MDBoxLayout:
-                            size_hint_y: None
-                            height: dp(40)
                             MDLabel:
-                                text: "Comisión de Uber"
-                                size_hint_x: .72
-                                theme_text_color: "Custom"
-                                text_color: app.muted_color
-                            MDLabel:
-                                text: root.commission_text
-                                size_hint_x: .28
-                                halign: "right"
-                        MDBoxLayout:
-                            size_hint_y: None
-                            height: dp(40)
-                            MDLabel:
-                                text: "Nafta consumida"
-                                size_hint_x: .72
+                                text: "Nafta estimada"
                                 theme_text_color: "Custom"
                                 text_color: app.muted_color
                             MDLabel:
                                 text: "− " + root.fuel_cost_text
-                                size_hint_x: .28
                                 halign: "right"
                         MDBoxLayout:
-                            size_hint_y: None
-                            height: dp(40)
                             MDLabel:
                                 text: "Otros gastos"
-                                size_hint_x: .72
                                 theme_text_color: "Custom"
                                 text_color: app.muted_color
                             MDLabel:
                                 text: "− " + root.expenses_text
-                                size_hint_x: .28
                                 halign: "right"
                         MDBoxLayout:
-                            size_hint_y: None
-                            height: dp(40)
                             MDLabel:
                                 text: "Viajes · kilómetros"
-                                size_hint_x: .72
                                 theme_text_color: "Custom"
                                 text_color: app.muted_color
                             MDLabel:
                                 text: root.trips_text + " · " + root.km_text
-                                size_hint_x: .28
                                 halign: "right"
+
                     MDLabel:
                         text: root.commission_help_text
                         theme_text_color: "Custom"
@@ -342,58 +473,19 @@ ScreenManager:
                         font_style: "Caption"
                         text_size: self.width, None
                         size_hint_y: None
-                        height: dp(54)
+                        height: self.texture_size[1] + dp(8)
 
                 MDCard:
                     orientation: "vertical"
-                    padding: dp(16)
-                    spacing: dp(6)
-                    radius: [18,18,18,18]
-                    md_bg_color: app.card_color
-                    size_hint_y: None
-                    height: dp(226)
-
-                    MDLabel:
-                        text: "Jornada"
-                        font_style: "H6"
-                        bold: True
-                        size_hint_y: None
-                        height: dp(32)
-
-                    MDLabel:
-                        text: root.session_status_text
-                        bold: True
-                        size_hint_y: None
-                        height: dp(30)
-                    MDLabel:
-                        text: root.session_time_text
-                        theme_text_color: "Custom"
-                        text_color: app.muted_color
-                        size_hint_y: None
-                        height: dp(32)
-                    MDRaisedButton:
-                        text: root.session_action_text
-                        size_hint_y: None
-                        height: dp(50)
-                        md_bg_color: app.accent_color
-                        on_release: app.toggle_work_session()
-                    MDFlatButton:
-                        text: "ACTUALIZAR ODÓMETRO"
-                        size_hint_y: None
-                        height: dp(42)
-                        on_release: app.open_current_odometer_dialog()
-
-                MDCard:
-                    orientation: "vertical"
-                    padding: dp(16)
+                    padding: dp(18)
                     spacing: dp(5)
-                    radius: [18,18,18,18]
+                    radius: [22,22,22,22]
                     md_bg_color: app.card_color
                     size_hint_y: None
-                    height: dp(246)
+                    height: dp(252)
 
                     MDLabel:
-                        text: "Ingresos de los últimos 7 días"
+                        text: "Tu semana, de un vistazo"
                         font_style: "H6"
                         bold: True
                         size_hint_y: None
@@ -439,54 +531,9 @@ ScreenManager:
                         text: root.chart_detail_text
                         theme_text_color: "Custom"
                         text_color: app.muted_color
+                        font_style: "Caption"
                         size_hint_y: None
                         height: dp(32)
-
-                MDGridLayout:
-                    cols: 2
-                    spacing: dp(10)
-                    size_hint_y: None
-                    height: dp(118)
-                    MDRaisedButton:
-                        text: "¿ME CONVIENE?"
-                        md_bg_color: app.accent_color
-                        on_release: app.go("assistant")
-                    MDRaisedButton:
-                        text: "+ SUMAR VIAJE"
-                        on_release: app.open_trip_dialog()
-                    MDFlatButton:
-                        text: "+ GASTO"
-                        on_release: app.open_expense_dialog()
-                    MDFlatButton:
-                        text: "VUELTO / CAJA"
-                        on_release: app.go("cash")
-
-                MDCard:
-                    orientation: "vertical"
-                    padding: dp(16)
-                    spacing: dp(8)
-                    radius: [18,18,18,18]
-                    md_bg_color: app.card_color
-                    size_hint_y: None
-                    height: dp(142)
-                    MDLabel:
-                        text: "Meta " + root.period_label.lower()
-                        font_style: "H6"
-                        bold: True
-                    MDLabel:
-                        text: root.goal_text
-                        theme_text_color: "Custom"
-                        text_color: app.muted_color
-                    MDProgressBar:
-                        value: root.goal_percent
-                        max: 100
-                        size_hint_y: None
-                        height: dp(7)
-                    MDLabel:
-                        text: root.daily_remaining_text
-                        theme_text_color: "Custom"
-                        text_color: root.goal_message_color
-                        bold: True
 
         MainNav:
             active_screen: "dashboard"
@@ -2096,6 +2143,33 @@ ScreenManager:
                     md_bg_color: app.accent_color
                     on_release: app.export_database_to_xlsx()
 
+                MDRaisedButton:
+                    text: "CREAR COPIA DE SEGURIDAD"
+                    md_bg_color: app.primary_color
+                    on_release: app.create_database_backup()
+
+                MDCard:
+                    orientation: "vertical"
+                    padding: dp(16)
+                    spacing: dp(4)
+                    radius: [18,18,18,18]
+                    md_bg_color: app.soft_surface_color
+                    size_hint_y: None
+                    height: dp(92)
+                    MDLabel:
+                        text: "Driver Control v" + app.version_text
+                        bold: True
+                        size_hint_y: None
+                        height: dp(30)
+                    MDLabel:
+                        text: "Tus datos se guardan en este teléfono. Hacé una copia antes de desinstalar."
+                        theme_text_color: "Custom"
+                        text_color: app.muted_color
+                        font_style: "Caption"
+                        text_size: self.width, None
+                        size_hint_y: None
+                        height: self.texture_size[1] + dp(4)
+
                 Widget:
                     size_hint_y: None
                     height: dp(40)
@@ -2164,12 +2238,22 @@ class WeeklyBarChart(Widget):
 
 
 class DashboardScreen(Screen):
+    greeting_text = StringProperty("Tu plata, clara")
     current_datetime_text = StringProperty("")
     period_mode = StringProperty("today")
     period_label = StringProperty("Hoy")
-    session_status_text = StringProperty("Jornada cerrada")
+    session_active = BooleanProperty(False)
+    session_status_text = StringProperty("Tu próxima jornada")
     session_time_text = StringProperty("Abrí una jornada para empezar")
-    session_action_text = StringProperty("ABRIR JORNADA")
+    session_helper_text = StringProperty(
+        "Empezá en pocos segundos. Los detalles pueden esperar hasta que vuelvas a casa."
+    )
+    session_action_text = StringProperty("EMPEZAR JORNADA")
+    data_status_text = StringProperty("SIN DATOS")
+    insight_title_text = StringProperty("Todo listo para empezar")
+    insight_body_text = StringProperty(
+        "Abrí una jornada cuando salgas. Después podrás cerrarla usando solamente los totales."
+    )
     fuel_used_text = StringProperty("Consumido: 0,00 L · $0")
     fuel_reserve_text = StringProperty("A reponer: $0")
     revenue_text = StringProperty("$0")
@@ -2316,11 +2400,16 @@ class ValidationError(ValueError):
 
 
 class DriverControlApp(MDApp):
+    version_text = StringProperty(APP_VERSION)
     bg_color = ListProperty([0.965, 0.976, 0.988, 1])
     card_color = ListProperty([1, 1, 1, 1])
     muted_color = ListProperty([0.32, 0.38, 0.45, 1])
     accent_color = ListProperty([0.02, 0.60, 0.64, 1])
     primary_color = ListProperty([0.055, 0.12, 0.20, 1])
+    soft_surface_color = ListProperty([0.91, 0.95, 0.97, 1])
+    insight_surface_color = ListProperty([0.91, 0.98, 0.98, 1])
+    success_color = ListProperty([0.08, 0.62, 0.40, 1])
+    warning_color = ListProperty([0.94, 0.49, 0.12, 1])
     # Kivy reserves names prefixed with ``on_`` for change callbacks. Keeping
     # display colors outside that namespace prevents a theme change from
     # trying to call an ObservableList as though it were a function.
@@ -2841,6 +2930,10 @@ class DriverControlApp(MDApp):
             self.muted_color = [0.65, 0.71, 0.77, 1]
             self.accent_color = [0.18, 0.82, 0.73, 1]
             self.primary_color = [0.03, 0.20, 0.22, 1]
+            self.soft_surface_color = [0.09, 0.14, 0.18, 1]
+            self.insight_surface_color = [0.05, 0.18, 0.19, 1]
+            self.success_color = [0.25, 0.86, 0.61, 1]
+            self.warning_color = [0.98, 0.57, 0.18, 1]
             self.primary_muted_text_color = [0.72, 0.90, 0.88, 1]
             self.chart_color = [0.16, 0.45, 0.48, 1]
         else:
@@ -2849,6 +2942,10 @@ class DriverControlApp(MDApp):
             self.muted_color = [0.32, 0.38, 0.45, 1]
             self.accent_color = [0.02, 0.60, 0.64, 1]
             self.primary_color = [0.055, 0.12, 0.20, 1]
+            self.soft_surface_color = [0.91, 0.95, 0.97, 1]
+            self.insight_surface_color = [0.91, 0.98, 0.98, 1]
+            self.success_color = [0.08, 0.62, 0.40, 1]
+            self.warning_color = [0.94, 0.49, 0.12, 1]
             self.primary_muted_text_color = [0.76, 0.84, 0.90, 1]
             self.chart_color = [0.44, 0.75, 0.77, 1]
         self.primary_text_color = [1, 1, 1, 1]
@@ -2988,6 +3085,12 @@ class DriverControlApp(MDApp):
         dashboard = self.root.get_screen("dashboard")
         now = datetime.now()
         weekday = WEEKDAYS_ES[now.weekday()].capitalize()
+        if now.hour < 12:
+            dashboard.greeting_text = "Buen día"
+        elif now.hour < 20:
+            dashboard.greeting_text = "Buenas tardes"
+        else:
+            dashboard.greeting_text = "Buenas noches"
         dashboard.current_datetime_text = f"{weekday} {now:%d/%m/%Y} · {now:%H:%M}"
         session = self._active_session()
         if session:
@@ -4658,12 +4761,62 @@ class DriverControlApp(MDApp):
         self._refresh_chart_detail()
 
         if session is not None:
-            dashboard.session_status_text = "Jornada activa"
-            dashboard.session_action_text = "CERRAR JORNADA"
+            dashboard.session_active = True
+            dashboard.session_status_text = "Jornada en curso"
+            dashboard.session_helper_text = (
+                "Concentrate en manejar. Podés cargar los totales y entender tu ganancia al finalizar."
+            )
+            dashboard.session_action_text = "FINALIZAR Y VER MI GANANCIA"
         else:
-            dashboard.session_status_text = "Jornada cerrada"
+            dashboard.session_active = False
+            dashboard.session_status_text = "Tu próxima jornada"
             dashboard.session_time_text = "Abrí una jornada para empezar"
-            dashboard.session_action_text = "ABRIR JORNADA"
+            dashboard.session_helper_text = (
+                "Empezá en pocos segundos. Los detalles pueden esperar hasta que vuelvas a casa."
+            )
+            dashboard.session_action_text = "EMPEZAR JORNADA"
+
+        has_financial_data = any(
+            (
+                metrics["income"] > 0,
+                metrics["expenses"] > 0,
+                metrics["km"] > 0,
+                metrics["trips"] > 0,
+            )
+        )
+        if not has_financial_data:
+            dashboard.data_status_text = "SIN DATOS"
+            dashboard.insight_title_text = "Todo listo para empezar"
+            dashboard.insight_body_text = (
+                "Abrí una jornada cuando salgas. Al volver podrás cerrarla usando solamente los totales de Uber."
+            )
+        elif odometer_pending:
+            dashboard.data_status_text = "ESTIMADO"
+            dashboard.insight_title_text = "Falta un dato para saber la ganancia real"
+            dashboard.insight_body_text = (
+                "Actualizá el odómetro al terminar. Así Driver Control podrá calcular la nafta consumida."
+            )
+        elif session is not None:
+            dashboard.data_status_text = "EN CURSO"
+            dashboard.insight_title_text = "Los números pueden esperar"
+            dashboard.insight_body_text = (
+                "No hace falta cargar cada viaje mientras manejás. Cerrá la jornada desde un lugar tranquilo."
+            )
+        else:
+            dashboard.data_status_text = "ESTIMADO"
+            if metrics["km"] > 0:
+                dashboard.insight_title_text = (
+                    f"Cada kilómetro te dejó {self.money(per_km)}"
+                )
+                dashboard.insight_body_text = (
+                    f"Después de nafta y gastos, recorriste {metrics['km']:.1f} km. "
+                    "Usá este dato para comparar tus próximas jornadas."
+                )
+            else:
+                dashboard.insight_title_text = "Ya sabés cuánto dinero te quedó"
+                dashboard.insight_body_text = (
+                    "Para calcular también la eficiencia por kilómetro, registrá el odómetro al abrir y cerrar."
+                )
 
         cash = self.root.get_screen("cash")
         cash.profit_text = self.money(daily_metrics["profit"])
@@ -5758,11 +5911,17 @@ class DriverControlApp(MDApp):
                 "No se pudo guardar la configuración.",
             )
 
-    def _share_excel_on_android(self, export_path: Path):
+    def _share_file_on_android(
+        self,
+        export_path: Path,
+        mime_type: str,
+        chooser_title: str,
+        subject: str,
+    ):
         from jnius import autoclass, cast
 
         if not export_path.is_file() or export_path.stat().st_size <= 0:
-            raise FileNotFoundError(f"Excel export not found: {export_path}")
+            raise FileNotFoundError(f"Export not found: {export_path}")
 
         ClipData = autoclass("android.content.ClipData")
         File = autoclass("java.io.File")
@@ -5774,16 +5933,56 @@ class DriverControlApp(MDApp):
         authority = f"{current.getPackageName()}.fileprovider"
         uri = FileProvider.getUriForFile(current, authority, File(str(export_path)))
         intent = Intent(Intent.ACTION_SEND)
-        intent.setType(
-            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
+        intent.setType(mime_type)
         intent.putExtra(Intent.EXTRA_STREAM, cast("android.os.Parcelable", uri))
-        intent.putExtra(Intent.EXTRA_SUBJECT, f"Driver Control {APP_VERSION}")
-        intent.setClipData(ClipData.newRawUri("Excel de Driver Control", uri))
+        intent.putExtra(Intent.EXTRA_SUBJECT, subject)
+        intent.setClipData(ClipData.newRawUri(subject, uri))
         intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        chooser = Intent.createChooser(intent, "Compartir Excel de Driver Control")
+        chooser = Intent.createChooser(intent, chooser_title)
         chooser.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         current.startActivity(chooser)
+
+    def _share_excel_on_android(self, export_path: Path):
+        self._share_file_on_android(
+            export_path,
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "Compartir Excel de Driver Control",
+            f"Excel de Driver Control {APP_VERSION}",
+        )
+
+    def create_database_backup(self):
+        """Crea una copia SQLite consistente para guardar fuera de la app."""
+        backup_connection = None
+        try:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            backup_path = Path(self.user_data_dir) / f"driver_control_backup_{timestamp}.db"
+            self.conn.commit()
+            backup_connection = sqlite3.connect(str(backup_path))
+            self.conn.backup(backup_connection)
+            backup_connection.close()
+            backup_connection = None
+
+            if platform == "android":
+                self._share_file_on_android(
+                    backup_path,
+                    "application/octet-stream",
+                    "Guardar copia de Driver Control",
+                    f"Copia de seguridad Driver Control {APP_VERSION}",
+                )
+                detail = "Elegí Google Drive, Archivos u otro lugar seguro."
+            else:
+                detail = f"Archivo guardado en:\n{backup_path.resolve()}"
+            self.show_message(
+                "Copia creada",
+                "Esta copia conserva jornadas, viajes, gastos y ajustes.\n" + detail,
+            )
+            LOGGER.info("Database backup created: %s", backup_path)
+        except Exception:
+            LOGGER.exception("Error creating database backup.")
+            self.show_message("Error", "No se pudo crear la copia de seguridad.")
+        finally:
+            if backup_connection is not None:
+                backup_connection.close()
 
     def export_database_to_xlsx(self):
         try:

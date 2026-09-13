@@ -1,6 +1,7 @@
 import importlib.util
 import sqlite3
 import sys
+import tempfile
 import types
 import unittest
 from datetime import datetime, timedelta
@@ -98,6 +99,28 @@ class FinanceModelTest(unittest.TestCase):
             if name.startswith("on_") and not callable(value)
         ]
         self.assertEqual([], invalid_handlers)
+
+    def test_database_backup_keeps_operational_data(self):
+        with self.app.transaction():
+            self.app.conn.execute(
+                "INSERT OR REPLACE INTO settings(key,value) VALUES('daily_goal','85000')"
+            )
+
+        messages = []
+        self.app.show_message = lambda title, body: messages.append((title, body))
+        with tempfile.TemporaryDirectory() as temp_dir:
+            self.app.user_data_dir = temp_dir
+            self.app.create_database_backup()
+            backups = list(Path(temp_dir).glob("driver_control_backup_*.db"))
+            self.assertEqual(1, len(backups))
+            backup = sqlite3.connect(str(backups[0]))
+            value = backup.execute(
+                "SELECT value FROM settings WHERE key='daily_goal'"
+            ).fetchone()[0]
+            backup.close()
+
+        self.assertEqual("85000", value)
+        self.assertEqual("Copia creada", messages[-1][0])
 
     def test_money_model_and_cash_reconciliation_are_separate(self):
         now = datetime.now()

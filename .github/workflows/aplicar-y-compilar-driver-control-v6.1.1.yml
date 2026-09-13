@@ -1,0 +1,192 @@
+name: Aplicar identidad y compilar Driver Control v6.1.1
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ "main" ]
+    paths:
+      - ".github/workflows/aplicar-y-compilar-driver-control-v6.1.1.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: driver-control-v6.1.1
+  cancel-in-progress: true
+
+jobs:
+  test-and-build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 100
+
+    steps:
+      - name: Descargar proyecto
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Aplicar identidad visual v6.1.1
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          main_path = Path("main.py")
+          main = main_path.read_text(encoding="utf-8")
+          main = main.replace("# Driver Control v6.1.0", "# Driver Control v6.1.1")
+          main = main.replace('APP_VERSION = "6.1.0"', 'APP_VERSION = "6.1.1"')
+          main_path.write_text(main, encoding="utf-8")
+
+          spec_path = Path("buildozer.spec")
+          spec = spec_path.read_text(encoding="utf-8")
+          spec = spec.replace("version = 6.1.0", "version = 6.1.1")
+          branding = (
+              "icon.filename = %(source.dir)s/assets/branding/driver_control_icon.png\n"
+              "presplash.filename = %(source.dir)s/assets/branding/driver_control_splash.png\n"
+          )
+          if "presplash.filename" not in spec:
+              spec = spec.replace("source.exclude_dirs = tests\n", "source.exclude_dirs = tests\n" + branding)
+          spec_path.write_text(spec, encoding="utf-8")
+
+          test_path = Path("tests/test_android_integration.py")
+          tests = test_path.read_text(encoding="utf-8")
+          tests = tests.replace('APP_VERSION = "6.1.0"', 'APP_VERSION = "6.1.1"')
+          tests = tests.replace("version = 6.1.0", "version = 6.1.1")
+          method = '''
+
+              def test_driver_control_brand_replaces_default_kivy_startup(self):
+                  spec = (ROOT / "buildozer.spec").read_text(encoding="utf-8")
+                  icon = ROOT / "assets/branding/driver_control_icon.png"
+                  splash = ROOT / "assets/branding/driver_control_splash.png"
+
+                  self.assertIn(
+                      "icon.filename = %(source.dir)s/assets/branding/driver_control_icon.png",
+                      spec,
+                  )
+                  self.assertIn(
+                      "presplash.filename = %(source.dir)s/assets/branding/driver_control_splash.png",
+                      spec,
+                  )
+                  self.assertGreater(icon.stat().st_size, 100_000)
+                  self.assertGreater(splash.stat().st_size, 100_000)
+          '''
+          if "test_driver_control_brand_replaces_default_kivy_startup" not in tests:
+              tests = tests.replace('\n\nif __name__ == "__main__":', method + '\n\nif __name__ == "__main__":')
+          test_path.write_text(tests, encoding="utf-8")
+
+          Path("CHANGELOG_6.1.1.md").write_text(
+              "# Driver Control 6.1.1 — identidad visual propia\n\n"
+              "- Reemplaza la pantalla negra predeterminada de Kivy y el texto `Loading...`.\n"
+              "- Incorpora un inicio vertical de Driver Control con auto, camino y horizonte.\n"
+              "- Incorpora el nuevo ícono oficial de la aplicación.\n"
+              "- Mantiene el contenido principal dentro de una zona segura para distintas pantallas Android.\n",
+              encoding="utf-8",
+          )
+          PY
+
+          test -s assets/branding/driver_control_icon.png
+          test -s assets/branding/driver_control_splash.png
+          grep -q 'APP_VERSION = "6.1.1"' main.py
+          grep -q 'version = 6.1.1' buildozer.spec
+          grep -q '^icon.filename = .*driver_control_icon.png' buildozer.spec
+          grep -q '^presplash.filename = .*driver_control_splash.png' buildozer.spec
+
+      - name: Ejecutar pruebas automáticas
+        run: python3 -m unittest discover -s tests -v
+
+      - name: Configurar Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Preparar firma persistente de prueba
+        env:
+          DRIVER_CONTROL_DEBUG_KEYSTORE_B64: ${{ secrets.DRIVER_CONTROL_DEBUG_KEYSTORE_B64 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${DRIVER_CONTROL_DEBUG_KEYSTORE_B64:-}"
+          mkdir -p "$HOME/.android"
+          printf '%s' "$DRIVER_CONTROL_DEBUG_KEYSTORE_B64" | base64 --decode > "$HOME/.android/debug.keystore"
+          chmod 600 "$HOME/.android/debug.keystore"
+          keytool -list -keystore "$HOME/.android/debug.keystore" -storepass android -alias androiddebugkey >/dev/null
+
+      - name: Compilar y verificar APK v6.1.1
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          cp buildozer.spec buildozer.spec.complete
+          trap 'mv -f buildozer.spec.complete buildozer.spec 2>/dev/null || true' EXIT
+          sed -i '/^android.extra_manifest_application_arguments[[:space:]]*=/d' buildozer.spec
+
+          docker run --rm \
+            -v "$PWD":/home/user/hostcwd \
+            -v "$HOME/.android/debug.keystore":/home/user/.android/debug.keystore \
+            ghcr.io/kivy/buildozer:latest android debug
+
+          sudo chown -R "$(id -u):$(id -g)" .buildozer bin || true
+
+          MANIFEST_PATH=$(find .buildozer/android/platform -path '*/dists/drivercontrol/src/main/AndroidManifest.xml' -print -quit)
+          test -n "$MANIFEST_PATH"
+          DIST_DIR=$(dirname "$(dirname "$(dirname "$MANIFEST_PATH")")")
+          PRESPLASH_PATH=$(find "$DIST_DIR/src/main/res" -type f -iname '*presplash*' -print -quit)
+          test -n "$PRESPLASH_PATH"
+          test -s "$PRESPLASH_PATH"
+
+          if ! grep -q 'UberOfferAccessibilityService' "$MANIFEST_PATH"; then
+            sed -i '/<\/application>/e cat android_manifest/application_services.xml' "$MANIFEST_PATH"
+          fi
+
+          JAVA_DST="$DIST_DIR/src/main/java/org/drivercontrol/drivercontrol"
+          mkdir -p "$JAVA_DST"
+          cp -v android_src/org/drivercontrol/drivercontrol/*.java "$JAVA_DST/"
+          test -f "$JAVA_DST/DriverOverlayService.java"
+          test -f "$JAVA_DST/UberOfferAccessibilityService.java"
+          test -f "$JAVA_DST/OcrCaptureService.java"
+          test -f "$JAVA_DST/DriverCopilotCoordinator.java"
+          test -f "$JAVA_DST/TripProfitabilityAnalyzer.java"
+
+          (cd "$DIST_DIR" && ./gradlew --version && ./gradlew clean assembleDebug)
+
+          APK_PATH=$(find "$DIST_DIR/build/outputs/apk/debug" -name '*.apk' -print -quit)
+          test -n "$APK_PATH"
+          mkdir -p bin
+          cp "$APK_PATH" bin/driver-control-v6.1.1-identidad.apk
+
+          unzip -t bin/driver-control-v6.1.1-identidad.apk >/dev/null
+          test "$(stat -c%s bin/driver-control-v6.1.1-identidad.apk)" -gt 10000000
+          unzip -p bin/driver-control-v6.1.1-identidad.apk assets/private.tar > /tmp/private.tar
+          tar -tf /tmp/private.tar > /tmp/private-list.txt
+          grep -q 'assets/branding/driver_control_icon.png' /tmp/private-list.txt
+          grep -q 'assets/branding/driver_control_splash.png' /tmp/private-list.txt
+          MAIN_PYC=$(awk '/(^|\/)main\.pyc$/{print; exit}' /tmp/private-list.txt)
+          test -n "$MAIN_PYC"
+          tar -xOf /tmp/private.tar "$MAIN_PYC" > /tmp/driver-control-main.pyc
+          strings /tmp/driver-control-main.pyc > /tmp/driver-control-main-strings.txt
+          grep -q '6.1.1' /tmp/driver-control-main-strings.txt
+          grep -q 'DINERO REAL QUE TE QUED' /tmp/driver-control-main-strings.txt
+
+      - name: Subir APK verificado
+        uses: actions/upload-artifact@v4
+        with:
+          name: Driver-Control-v6.1.1-IDENTIDAD-PROPIA
+          path: bin/driver-control-v6.1.1-identidad.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publicar código verificado en main
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+          git add main.py buildozer.spec tests/test_android_integration.py CHANGELOG_6.1.1.md
+          if git diff --cached --quiet; then
+            echo "No hay cambios nuevos para publicar."
+          else
+            git commit -m "Publicar Driver Control v6.1.1 con identidad propia"
+            git push origin HEAD:main
+          fi

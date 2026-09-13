@@ -18,12 +18,33 @@ class AndroidIntegrationSourceTest(unittest.TestCase):
         self.assertIn('putInt("bubble_y"', source)
         self.assertIn("view.performClick()", source)
 
-    def test_excel_share_grants_android_uri_access(self):
+    def test_excel_share_uses_native_android_bridge(self):
         source = (ROOT / "main.py").read_text(encoding="utf-8")
+        bridge = (
+            ROOT
+            / "android_src/org/drivercontrol/drivercontrol/DriverFileShare.java"
+        ).read_text(encoding="utf-8")
 
-        self.assertIn('cast("android.os.Parcelable", uri)', source)
-        self.assertIn("intent.setClipData", source)
-        self.assertIn("FLAG_GRANT_READ_URI_PERMISSION", source)
+        self.assertIn("DriverFileShare.shareFile", source)
+        self.assertIn("activity.getCacheDir()", bridge)
+        self.assertIn("FileProvider.getUriForFile", bridge)
+        self.assertIn("FLAG_GRANT_READ_URI_PERMISSION", bridge)
+        self.assertIn("runOnUiThread", bridge)
+
+    def test_file_provider_exposes_controlled_export_paths(self):
+        manifest = (
+            ROOT / "android_manifest/application_services.xml"
+        ).read_text(encoding="utf-8")
+        paths = (
+            ROOT / "android_res/xml/driver_control_file_paths.xml"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn(
+            'android:authorities="org.drivercontrol.drivercontrol.fileprovider"',
+            manifest,
+        )
+        self.assertIn("<cache-path", paths)
+        self.assertIn('path="driver_control_exports/"', paths)
 
     def test_file_provider_dependency_is_packaged(self):
         spec = (ROOT / "buildozer.spec").read_text(encoding="utf-8")
@@ -33,14 +54,14 @@ class AndroidIntegrationSourceTest(unittest.TestCase):
         source = (ROOT / "main.py").read_text(encoding="utf-8")
         spec = (ROOT / "buildozer.spec").read_text(encoding="utf-8")
 
-        self.assertIn('APP_VERSION = "6.1.1"', source)
+        self.assertIn('APP_VERSION = "6.1.2"', source)
         self.assertIn('text: "DINERO REAL QUE TE QUEDÓ · "', source)
         self.assertIn(
             'dashboard.session_action_text = "FINALIZAR Y VER MI GANANCIA"',
             source,
         )
         self.assertIn("def create_database_backup", source)
-        self.assertIn("version = 6.1.1", spec)
+        self.assertIn("version = 6.1.2", spec)
 
 
     def test_driver_control_brand_replaces_default_kivy_startup(self):
@@ -56,6 +77,7 @@ class AndroidIntegrationSourceTest(unittest.TestCase):
             "presplash.filename = %(source.dir)s/assets/branding/driver_control_splash.png",
             spec,
         )
+        self.assertIn("android.presplash_color = #041F3E", spec)
         self.assertGreater(icon.stat().st_size, 100_000)
         self.assertGreater(splash.stat().st_size, 100_000)
 

@@ -1,0 +1,138 @@
+name: Compilar Driver Control v6.1.2
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ "main" ]
+    paths:
+      - ".github/workflows/compilar-driver-control-v6.1.2.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: driver-control-v6.1.2
+  cancel-in-progress: true
+
+jobs:
+  test-and-build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 100
+
+    steps:
+      - name: Descargar proyecto
+        uses: actions/checkout@v4
+
+      - name: Verificar correcciones v6.1.2
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s assets/branding/driver_control_icon.png
+          test -s assets/branding/driver_control_splash.png
+          test -s android_src/org/drivercontrol/drivercontrol/DriverFileShare.java
+          grep -F 'APP_VERSION = "6.1.2"' main.py
+          grep -F 'version = 6.1.2' buildozer.spec
+          grep -F 'android.presplash_color = #041F3E' buildozer.spec
+          grep -F 'DriverFileShare.shareFile' main.py
+          grep -F 'android:authorities="org.drivercontrol.drivercontrol.fileprovider"' android_manifest/application_services.xml
+          grep -F 'path="driver_control_exports/"' android_res/xml/driver_control_file_paths.xml
+
+      - name: Ejecutar pruebas automáticas
+        run: |
+          python3 -m pip install --disable-pip-version-check xlsxwriter==3.2.9
+          python3 -m unittest discover -s tests -v
+
+      - name: Configurar Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Preparar firma persistente de prueba
+        env:
+          DRIVER_CONTROL_DEBUG_KEYSTORE_B64: ${{ secrets.DRIVER_CONTROL_DEBUG_KEYSTORE_B64 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${DRIVER_CONTROL_DEBUG_KEYSTORE_B64:-}"
+          mkdir -p "$HOME/.android"
+          printf '%s' "$DRIVER_CONTROL_DEBUG_KEYSTORE_B64" | base64 --decode > "$HOME/.android/debug.keystore"
+          chmod 600 "$HOME/.android/debug.keystore"
+          keytool -list -keystore "$HOME/.android/debug.keystore" -storepass android -alias androiddebugkey >/dev/null
+
+      - name: Compilar y verificar APK v6.1.2
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          cp buildozer.spec buildozer.spec.complete
+          trap 'mv -f buildozer.spec.complete buildozer.spec 2>/dev/null || true' EXIT
+          sed -i '/^android.extra_manifest_application_arguments[[:space:]]*=/d' buildozer.spec
+
+          docker run --rm \
+            -v "$PWD":/home/user/hostcwd \
+            -v "$HOME/.android/debug.keystore":/home/user/.android/debug.keystore \
+            ghcr.io/kivy/buildozer:latest android debug
+
+          sudo chown -R "$(id -u):$(id -g)" .buildozer bin || true
+
+          MANIFEST_PATH=$(find .buildozer/android/platform -path '*/dists/drivercontrol/src/main/AndroidManifest.xml' -print -quit)
+          test -n "$MANIFEST_PATH"
+          DIST_DIR=$(dirname "$(dirname "$(dirname "$MANIFEST_PATH")")")
+          PRESPLASH_PATH=$(find "$DIST_DIR/src/main/res" -type f -iname '*presplash*' -print -quit)
+          test -n "$PRESPLASH_PATH"
+          test -s "$PRESPLASH_PATH"
+
+          if ! grep -q 'UberOfferAccessibilityService' "$MANIFEST_PATH"; then
+            sed -i '/<\/application>/e cat android_manifest/application_services.xml' "$MANIFEST_PATH"
+          fi
+
+          JAVA_DST="$DIST_DIR/src/main/java/org/drivercontrol/drivercontrol"
+          mkdir -p "$JAVA_DST"
+          cp -v android_src/org/drivercontrol/drivercontrol/*.java "$JAVA_DST/"
+          test -f "$JAVA_DST/DriverFileShare.java"
+          test -f "$JAVA_DST/DriverOverlayService.java"
+          test -f "$JAVA_DST/UberOfferAccessibilityService.java"
+
+          (cd "$DIST_DIR" && ./gradlew --version && ./gradlew clean assembleDebug)
+
+          APK_PATH=$(find "$DIST_DIR/build/outputs/apk/debug" -name '*.apk' -print -quit)
+          test -n "$APK_PATH"
+          mkdir -p bin
+          cp "$APK_PATH" bin/driver-control-v6.1.2-corregido.apk
+
+          unzip -t bin/driver-control-v6.1.2-corregido.apk >/dev/null
+          test "$(stat -c%s bin/driver-control-v6.1.2-corregido.apk)" -gt 10000000
+
+          AAPT_PATH=$(find "$ANDROID_HOME/build-tools" -type f -name aapt -print | sort -V | tail -1)
+          test -n "$AAPT_PATH"
+          "$AAPT_PATH" dump xmltree bin/driver-control-v6.1.2-corregido.apk AndroidManifest.xml > /tmp/driver-control-manifest.txt
+          grep -F 'org.drivercontrol.drivercontrol.fileprovider' /tmp/driver-control-manifest.txt
+          grep -F 'androidx.core.content.FileProvider' /tmp/driver-control-manifest.txt
+
+          unzip -p bin/driver-control-v6.1.2-corregido.apk classes.dex > /tmp/driver-control-classes.dex
+          strings /tmp/driver-control-classes.dex > /tmp/driver-control-dex-strings.txt
+          grep -F 'DriverFileShare' /tmp/driver-control-dex-strings.txt
+
+          unzip -p bin/driver-control-v6.1.2-corregido.apk assets/private.tar > /tmp/private.tar
+          tar -tf /tmp/private.tar > /tmp/private-list.txt
+          grep -F 'assets/branding/driver_control_splash.png' /tmp/private-list.txt
+          MAIN_PYC=$(awk '/(^|\/)main\.pyc$/{print; exit}' /tmp/private-list.txt)
+          test -n "$MAIN_PYC"
+          tar -xOf /tmp/private.tar "$MAIN_PYC" > /tmp/driver-control-main.pyc
+          strings /tmp/driver-control-main.pyc > /tmp/driver-control-main-strings.txt
+          grep -F '6.1.2' /tmp/driver-control-main-strings.txt
+          grep -F 'DriverFileShare' /tmp/driver-control-main-strings.txt
+
+          keytool -printcert -jarfile bin/driver-control-v6.1.2-corregido.apk > /tmp/driver-control-signature.txt
+          grep -F 'Owner:' /tmp/driver-control-signature.txt
+
+          sha256sum bin/driver-control-v6.1.2-corregido.apk
+
+      - name: Subir APK verificado
+        uses: actions/upload-artifact@v4
+        with:
+          name: Driver-Control-v6.1.2-CORREGIDO
+          path: bin/driver-control-v6.1.2-corregido.apk
+          if-no-files-found: error
+          retention-days: 30

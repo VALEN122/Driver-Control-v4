@@ -1,0 +1,300 @@
+name: Aplicar y compilar Driver Control v6.1.0
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ "main" ]
+    paths:
+      - ".github/workflows/aplicar-y-compilar-driver-control-v6.1.0.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: driver-control-v6.1.0
+  cancel-in-progress: true
+
+jobs:
+  test-and-build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 100
+
+    steps:
+      - name: Descargar proyecto
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Aplicar frontend 10X v6.1.0
+        shell: bash
+        run: |
+          set -euo pipefail
+          if grep -q 'APP_VERSION = "6.1.0"' main.py; then
+            echo "Driver Control v6.1.0 ya estaba aplicado."
+            exit 0
+          fi
+
+          base64 --decode > /tmp/driver-control-v6.1.patch.gz <<'PATCH_V61_GZ'
+          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
+          PATCH_V61_GZ
+          gzip --decompress --stdout /tmp/driver-control-v6.1.patch.gz > /tmp/driver-control-v6.1.patch
+          git apply --check /tmp/driver-control-v6.1.patch
+          git apply --whitespace=nowarn /tmp/driver-control-v6.1.patch
+
+      - name: Ejecutar pruebas automáticas
+        run: |
+          python -m pip install --disable-pip-version-check xlsxwriter==3.2.9
+          python -m py_compile main.py insight_engine.py excel_exporter.py
+          python -m unittest discover -s tests -v
+          grep -q 'APP_VERSION = "6.1.0"' main.py
+          grep -q 'DINERO REAL QUE TE QUEDÓ' main.py
+          grep -q 'version = 6.1.0' buildozer.spec
+
+      - name: Configurar Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Preparar firma persistente de prueba
+        shell: bash
+        env:
+          DRIVER_CONTROL_DEBUG_KEYSTORE_B64: ${{ secrets.DRIVER_CONTROL_DEBUG_KEYSTORE_B64 }}
+        run: |
+          set -euo pipefail
+          test -n "${DRIVER_CONTROL_DEBUG_KEYSTORE_B64:-}"
+          mkdir -p "$HOME/.android"
+          printf '%s' "$DRIVER_CONTROL_DEBUG_KEYSTORE_B64" | base64 --decode > "$HOME/.android/debug.keystore"
+          chmod 600 "$HOME/.android/debug.keystore"
+          keytool -list -keystore "$HOME/.android/debug.keystore" -storepass android -alias androiddebugkey >/dev/null
+
+      - name: Compilar APK v6.1.0
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          cp buildozer.spec buildozer.spec.complete
+          trap 'mv -f buildozer.spec.complete buildozer.spec 2>/dev/null || true' EXIT
+          sed -i '/^android.extra_manifest_application_arguments[[:space:]]*=/d' buildozer.spec
+
+          docker run --rm             -v "$PWD":/home/user/hostcwd             -v "$HOME/.android/debug.keystore":/home/user/.android/debug.keystore:ro             ghcr.io/kivy/buildozer:latest android debug
+
+          sudo chown -R "$(id -u):$(id -g)" .buildozer bin || true
+
+          MANIFEST_PATH=$(find .buildozer/android/platform -path '*/dists/drivercontrol/src/main/AndroidManifest.xml' -print -quit)
+          test -n "$MANIFEST_PATH"
+          DIST_DIR=$(dirname "$(dirname "$(dirname "$MANIFEST_PATH")")")
+
+          if ! grep -q 'UberOfferAccessibilityService' "$MANIFEST_PATH"; then
+            sed -i '/<\/application>/e cat android_manifest/application_services.xml' "$MANIFEST_PATH"
+          fi
+
+          JAVA_DST="$DIST_DIR/src/main/java/org/drivercontrol/drivercontrol"
+          mkdir -p "$JAVA_DST"
+          cp -v android_src/org/drivercontrol/drivercontrol/*.java "$JAVA_DST/"
+          test -f "$JAVA_DST/DriverOverlayService.java"
+          test -f "$JAVA_DST/UberOfferAccessibilityService.java"
+          test -f "$JAVA_DST/OcrCaptureService.java"
+          test -f "$JAVA_DST/DriverCopilotCoordinator.java"
+          test -f "$JAVA_DST/TripProfitabilityAnalyzer.java"
+
+          (cd "$DIST_DIR" && ./gradlew --version && ./gradlew clean assembleDebug)
+
+          APK_PATH=$(find "$DIST_DIR/build/outputs/apk/debug" -name '*.apk' -print -quit)
+          test -n "$APK_PATH"
+          mkdir -p bin
+          cp "$APK_PATH" bin/driver-control-v6.1.0-frontend-10x.apk
+
+          unzip -t bin/driver-control-v6.1.0-frontend-10x.apk >/dev/null
+          test "$(stat -c%s bin/driver-control-v6.1.0-frontend-10x.apk)" -gt 10000000
+          unzip -p bin/driver-control-v6.1.0-frontend-10x.apk assets/private.tar > /tmp/private.tar
+          MAIN_PYC=$(tar -tf /tmp/private.tar | grep -E '(^|/)main\.pyc$' | head -n1)
+          test -n "$MAIN_PYC"
+          tar -xOf /tmp/private.tar "$MAIN_PYC" | strings | grep -q '6.1.0'
+          tar -xOf /tmp/private.tar "$MAIN_PYC" | strings | grep -q 'DINERO REAL QUE TE QUEDÓ'
+
+      - name: Publicar código verificado en main
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add             main.py insight_engine.py excel_exporter.py buildozer.spec             tests CHANGELOG_6.1.0.md             android_src android_res android_manifest             ".github/workflows/build-apk.yml"             ".github/workflows/build-apk (1).yml"
+          if git diff --cached --quiet; then
+            echo "No hay cambios nuevos para publicar."
+          else
+            git commit -m "Publicar Driver Control v6.1.0 frontend 10X"
+            git push origin HEAD:main
+          fi
+
+      - name: Subir APK verificado
+        uses: actions/upload-artifact@v4
+        with:
+          name: Driver-Control-v6.1.0-FRONTEND-10X
+          path: bin/driver-control-v6.1.0-frontend-10x.apk
+          if-no-files-found: error
+          retention-days: 30

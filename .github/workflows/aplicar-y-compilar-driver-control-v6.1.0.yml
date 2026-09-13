@@ -241,7 +241,7 @@ jobs:
           trap 'mv -f buildozer.spec.complete buildozer.spec 2>/dev/null || true' EXIT
           sed -i '/^android.extra_manifest_application_arguments[[:space:]]*=/d' buildozer.spec
 
-          docker run --rm             -v "$PWD":/home/user/hostcwd             -v "$HOME/.android/debug.keystore":/home/user/.android/debug.keystore:ro             ghcr.io/kivy/buildozer:latest android debug
+          docker run --rm             -v "$PWD":/home/user/hostcwd             -v "$HOME/.android/debug.keystore":/home/user/.android/debug.keystore             ghcr.io/kivy/buildozer:latest android debug
 
           sudo chown -R "$(id -u):$(id -g)" .buildozer bin || true
 

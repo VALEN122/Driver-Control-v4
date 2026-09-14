@@ -126,8 +126,9 @@ jobs:
 
           APKSIGNER_PATH=$(find "$ANDROID_HOME/build-tools" -type f -name apksigner -print | sort -V | tail -1)
           test -n "$APKSIGNER_PATH"
-          "$APKSIGNER_PATH" verify --print-certs bin/driver-control-v6.1.2-corregido.apk > /tmp/driver-control-signature.txt
-          grep -F 'Signer #1 certificate DN:' /tmp/driver-control-signature.txt
+          # apksigner's exit status is the authoritative signature check. Its
+          # certificate text varies across Build Tools versions.
+          "$APKSIGNER_PATH" verify --verbose --print-certs bin/driver-control-v6.1.2-corregido.apk
 
           sha256sum bin/driver-control-v6.1.2-corregido.apk
 

@@ -206,7 +206,9 @@ class FinanceModelTest(unittest.TestCase):
         self.assertEqual(schema_version, self.main.DB_SCHEMA_VERSION)
 
     def test_smart_close_summary_replaces_trip_detail_without_double_counting(self):
-        now = datetime.now()
+        # Keep the fixture away from midnight so the four-hour session belongs
+        # to the same accounting day in every CI timezone.
+        now = datetime(2026, 1, 15, 12, 0, 0)
         opened = (now - timedelta(hours=4)).strftime(self.main.DATETIME_FORMAT)
         closed = now.strftime(self.main.DATETIME_FORMAT)
         date_text = now.strftime(self.main.DATE_FORMAT)

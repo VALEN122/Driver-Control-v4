@@ -13,16 +13,20 @@ public final class TripProfitabilityAnalyzer {
     public static final class Result {
         public final double liters;
         public final double fuelCost;
+        public final double maintenanceCost;
+        public final double operatingProfit;
         public final double netProfit;
         public final double perHour;
         public final double perKm;
         public final double score;
         public final Verdict verdict;
 
-        Result(double liters, double fuelCost, double netProfit, double perHour,
-               double perKm, double score, Verdict verdict) {
+        Result(double liters, double fuelCost, double maintenanceCost, double operatingProfit,
+               double netProfit, double perHour, double perKm, double score, Verdict verdict) {
             this.liters = liters;
             this.fuelCost = fuelCost;
+            this.maintenanceCost = maintenanceCost;
+            this.operatingProfit = operatingProfit;
             this.netProfit = netProfit;
             this.perHour = perHour;
             this.perKm = perKm;
@@ -49,7 +53,10 @@ public final class TripProfitabilityAnalyzer {
         double totalKm = Math.max(0.1, pickupKm + tripKm);
         double liters = totalKm * consumption / 100.0;
         double fuelCost = liters * fuelPrice;
+        double maintenancePerKm = Math.max(0.0, p.getFloat("maintenance_per_km", 0.0f));
+        double maintenanceCost = totalKm * maintenancePerKm;
         double net = fare - fuelCost;
+        double operatingProfit = net - maintenanceCost;
         double hourly = net / totalMin * 60.0;
         double perKm = net / totalKm;
 
@@ -73,7 +80,8 @@ public final class TripProfitabilityAnalyzer {
         } else {
             verdict = Verdict.ACCEPT;
         }
-        return new Result(liters, fuelCost, net, hourly, perKm, score, verdict);
+        return new Result(liters, fuelCost, maintenanceCost, operatingProfit,
+                net, hourly, perKm, score, verdict);
     }
 
     private static double clamp(double value, double min, double max) {

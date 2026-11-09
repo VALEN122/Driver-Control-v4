@@ -61,12 +61,18 @@ public final class TripProfitabilityAnalyzer {
         score = clamp(score, 0, 100);
 
         Verdict verdict;
-        if (paused || fatigueRisk >= 2 || perKm < minPerKm || score < 55) {
+        // Los mínimos son condiciones obligatorias para recomendar una oferta.
+        // La puntuación no puede convertir una oferta bajo el mínimo en verde.
+        boolean hourlyOk = hourly >= minHourly;
+        boolean kmOk = perKm >= minPerKm;
+        if (paused || fatigueRisk >= 2 || net <= 0 || (!hourlyOk && !kmOk)) {
             verdict = Verdict.DISCARD;
-        } else if (fatigueRisk == 1) {
+        } else if (!hourlyOk || !kmOk || pickupKm > maxPickupKm
+                || fatigueRisk == 1 || score < 75) {
             verdict = Verdict.REVIEW;
-        } else if (score >= 75) verdict = Verdict.ACCEPT;
-        else verdict = Verdict.REVIEW;
+        } else {
+            verdict = Verdict.ACCEPT;
+        }
         return new Result(liters, fuelCost, net, hourly, perKm, score, verdict);
     }
 

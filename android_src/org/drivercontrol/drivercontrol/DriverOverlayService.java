@@ -282,7 +282,7 @@ public class DriverOverlayService extends Service {
     private void createTripOverlay() {
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
-        box.setPadding(dp(13), dp(10), dp(13), dp(10));
+        box.setPadding(dp(10), dp(7), dp(10), dp(7));
         box.setBackground(rounded(
                 Color.argb(245, 17, 24, 32),
                 16,
@@ -290,11 +290,11 @@ public class DriverOverlayService extends Service {
         ));
         box.setElevation(dp(8));
 
-        verdictView = textView(24, true, Color.WHITE);
+        verdictView = textView(18, true, Color.WHITE);
         verdictView.setGravity(Gravity.CENTER);
-        headlineView = textView(18, true, Color.WHITE);
+        headlineView = textView(15, true, Color.WHITE);
         headlineView.setGravity(Gravity.CENTER);
-        metricsView = textView(13, false, Color.rgb(210, 220, 230));
+        metricsView = textView(11, false, Color.rgb(210, 220, 230));
         box.addView(verdictView);
         box.addView(headlineView);
         box.addView(metricsView);
@@ -306,7 +306,7 @@ public class DriverOverlayService extends Service {
 
     private WindowManager.LayoutParams tripLayoutParams() {
         WindowManager.LayoutParams lp = new WindowManager.LayoutParams(
-                Math.min(dp(330), getResources().getDisplayMetrics().widthPixels - dp(24)),
+                Math.min(dp(290), getResources().getDisplayMetrics().widthPixels - dp(24)),
                 WindowManager.LayoutParams.WRAP_CONTENT,
                 WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE

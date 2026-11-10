@@ -190,7 +190,7 @@ class FinanceModelTest(unittest.TestCase):
             row["name"] for row in self.app.conn.execute("PRAGMA table_info(work_sessions)")
         }
         self.assertIn("target_billing", columns)
-        self.assertEqual(self.app._setting_float("wear_per_km", -1.0), 0.0)
+        self.assertEqual(self.app._setting_float("wear_per_km", self.main.DEFAULT_WEAR_PER_KM), 0.0)
 
     def test_manual_offer_deducts_wear_and_never_green_below_minimum(self):
         with self.app.transaction():

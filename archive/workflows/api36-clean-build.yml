@@ -1,0 +1,176 @@
+name: API 36 clean build gate
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - "codex/play-readiness-v6.2"
+    paths:
+      - "buildozer.spec"
+      - "patches/p4a-v2024.01.21-api36.patch"
+      - "scripts/android/**"
+      - "android_src/**"
+      - "android_manifest/**"
+      - "android_res/**"
+      - "main.py"
+      - "finance_core.py"
+      - "tests/**"
+      - "requirements*.txt"
+      - ".github/workflows/api36-clean-build.yml"
+  pull_request:
+    paths:
+      - "buildozer.spec"
+      - "patches/p4a-v2024.01.21-api36.patch"
+      - "scripts/android/**"
+      - "android_src/**"
+      - "android_manifest/**"
+      - "android_res/**"
+      - "main.py"
+      - "finance_core.py"
+      - "tests/**"
+      - "requirements*.txt"
+      - ".github/workflows/api36-clean-build.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: api36-clean-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  P4A_COMMIT: 957a3e5f8c270f7aa648ba185e5a68c1077a798d
+  BUILDOZER_IMAGE: ghcr.io/kivy/buildozer:latest
+
+jobs:
+  clean-build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 110
+
+    steps:
+      - name: Check out Driver Control
+        uses: actions/checkout@v4
+
+      - name: Check out pinned python-for-android
+        uses: actions/checkout@v4
+        with:
+          repository: kivy/python-for-android
+          ref: ${{ env.P4A_COMMIT }}
+          path: _toolchain/python-for-android
+          fetch-depth: 1
+
+      - name: Patch p4a packaging layer for API 36 and 16 KiB
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C _toolchain/python-for-android rev-parse HEAD)" = "$P4A_COMMIT"
+          git -C _toolchain/python-for-android apply --check \
+            "$GITHUB_WORKSPACE/patches/p4a-v2024.01.21-api36.patch"
+          git -C _toolchain/python-for-android apply \
+            "$GITHUB_WORKSPACE/patches/p4a-v2024.01.21-api36.patch"
+          grep -F "com.android.tools.build:gradle:8.9.1" \
+            _toolchain/python-for-android/pythonforandroid/bootstraps/common/build/templates/build.tmpl.gradle
+          grep -F "gradle-8.11.1-all.zip" \
+            _toolchain/python-for-android/pythonforandroid/bootstraps/common/build/gradle/wrapper/gradle-wrapper.properties
+          grep -F "max-page-size=16384" \
+            _toolchain/python-for-android/pythonforandroid/archs.py
+
+      - name: Run unit and release-gate tests
+        run: |
+          python3 -m pip install --disable-pip-version-check xlsxwriter==3.2.9
+          python3 -m unittest discover -s tests -v
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Restore persistent test signing key
+        env:
+          DRIVER_CONTROL_DEBUG_KEYSTORE_B64: ${{ secrets.DRIVER_CONTROL_DEBUG_KEYSTORE_B64 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${DRIVER_CONTROL_DEBUG_KEYSTORE_B64:-}"
+          mkdir -p "$HOME/.android"
+          printf '%s' "$DRIVER_CONTROL_DEBUG_KEYSTORE_B64" \
+            | base64 --decode > "$HOME/.android/debug.keystore"
+          chmod 600 "$HOME/.android/debug.keystore"
+          keytool -list -keystore "$HOME/.android/debug.keystore" \
+            -storepass android -alias androiddebugkey >/dev/null
+
+      - name: Build from an empty Android workspace
+        shell: bash
+        run: |
+          set -euo pipefail
+          test ! -e .buildozer
+          cp buildozer.spec buildozer.spec.ci-backup
+          trap 'mv -f buildozer.spec.ci-backup buildozer.spec 2>/dev/null || true' EXIT
+          sed -i '/^android.extra_manifest_application_arguments[[:space:]]*=/d' buildozer.spec
+          printf '\np4a.source_dir = /home/user/p4a-api36\n' >> buildozer.spec
+
+          docker run --rm \
+            -v "$PWD":/home/user/hostcwd \
+            -v "$PWD/_toolchain/python-for-android":/home/user/p4a-api36 \
+            -v "$HOME/.android/debug.keystore":/home/user/.android/debug.keystore \
+            "$BUILDOZER_IMAGE" android clean
+
+          docker run --rm \
+            -v "$PWD":/home/user/hostcwd \
+            -v "$PWD/_toolchain/python-for-android":/home/user/p4a-api36 \
+            -v "$HOME/.android/debug.keystore":/home/user/.android/debug.keystore \
+            "$BUILDOZER_IMAGE" android debug
+
+          sudo chown -R "$(id -u):$(id -g)" .buildozer bin || true
+          MANIFEST_PATH=$(find .buildozer/android/platform \
+            -path '*/dists/drivercontrol/src/main/AndroidManifest.xml' -print -quit)
+          test -n "$MANIFEST_PATH"
+          DIST_DIR=$(dirname "$(dirname "$(dirname "$MANIFEST_PATH")")")
+
+          if ! grep -q 'UberOfferAccessibilityService' "$MANIFEST_PATH"; then
+            sed -i '/<\/application>/e cat android_manifest/application_services.xml' "$MANIFEST_PATH"
+          fi
+          JAVA_DST="$DIST_DIR/src/main/java/org/drivercontrol/drivercontrol"
+          mkdir -p "$JAVA_DST"
+          cp android_src/org/drivercontrol/drivercontrol/*.java "$JAVA_DST/"
+
+          (cd "$DIST_DIR" && ./gradlew --version && ./gradlew clean assembleDebug)
+          APK_PATH=$(find "$DIST_DIR/build/outputs/apk/debug" -name '*.apk' -print -quit)
+          test -n "$APK_PATH"
+          mkdir -p bin
+          cp "$APK_PATH" bin/driver-control-api36-clean-debug.apk
+
+      - name: Verify API, package, signature and 16 KiB alignment
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK=bin/driver-control-api36-clean-debug.apk
+          unzip -t "$APK" >/dev/null
+
+          AAPT=$(find "$ANDROID_HOME/build-tools" -type f -name aapt -print | sort -V | tail -1)
+          APKSIGNER=$(find "$ANDROID_HOME/build-tools" -type f -name apksigner -print | sort -V | tail -1)
+          ZIPALIGN=$(find "$ANDROID_HOME/build-tools" -type f -name zipalign -print | sort -V | tail -1)
+          test -n "$AAPT"
+          test -n "$APKSIGNER"
+          test -n "$ZIPALIGN"
+
+          "$AAPT" dump badging "$APK" | tee bin/api36-badging.txt
+          grep -F "package: name='org.drivercontrol.drivercontrol'" bin/api36-badging.txt
+          grep -F "targetSdkVersion:'36'" bin/api36-badging.txt
+          grep -F "versionName='6.1.4'" bin/api36-badging.txt
+          "$APKSIGNER" verify --verbose --print-certs "$APK" | tee bin/api36-signature.txt
+          "$ZIPALIGN" -c -P 16 -v 4 "$APK" | tee bin/api36-zipalign.txt
+          python3 scripts/android/check_elf_alignment.py "$APK" | tee bin/api36-elf-alignment.txt
+          sha256sum "$APK" | tee bin/api36-sha256.txt
+
+      - name: Upload API 36 evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: driver-control-api36-clean-evidence
+          path: |
+            bin/driver-control-api36-clean-debug.apk
+            bin/api36-*.txt
+          if-no-files-found: warn
+          retention-days: 14

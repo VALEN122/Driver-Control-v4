@@ -54,14 +54,15 @@ class AndroidIntegrationSourceTest(unittest.TestCase):
         source = (ROOT / "main.py").read_text(encoding="utf-8")
         spec = (ROOT / "buildozer.spec").read_text(encoding="utf-8")
 
-        self.assertIn('APP_VERSION = "6.1.2"', source)
-        self.assertIn('text: "DINERO REAL QUE TE QUEDÓ · "', source)
+        self.assertIn('APP_VERSION = "6.3.0"', source)
+        self.assertIn('text: "GANANCIA NETA ESTIMADA · "', source)
+        self.assertIn('text: "+ CARGAR NAFTA"', source)
         self.assertIn(
             'dashboard.session_action_text = "FINALIZAR Y VER MI GANANCIA"',
             source,
         )
         self.assertIn("def create_database_backup", source)
-        self.assertIn("version = 6.1.2", spec)
+        self.assertIn("version = 6.3.0", spec)
 
 
     def test_driver_control_brand_replaces_default_kivy_startup(self):

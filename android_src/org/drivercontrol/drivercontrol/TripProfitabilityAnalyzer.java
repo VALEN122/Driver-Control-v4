@@ -13,16 +13,20 @@ public final class TripProfitabilityAnalyzer {
     public static final class Result {
         public final double liters;
         public final double fuelCost;
+        public final double maintenanceCost;
+        public final double operatingProfit;
         public final double netProfit;
         public final double perHour;
         public final double perKm;
         public final double score;
         public final Verdict verdict;
 
-        Result(double liters, double fuelCost, double netProfit, double perHour,
-               double perKm, double score, Verdict verdict) {
+        Result(double liters, double fuelCost, double maintenanceCost, double operatingProfit,
+               double netProfit, double perHour, double perKm, double score, Verdict verdict) {
             this.liters = liters;
             this.fuelCost = fuelCost;
+            this.maintenanceCost = maintenanceCost;
+            this.operatingProfit = operatingProfit;
             this.netProfit = netProfit;
             this.perHour = perHour;
             this.perKm = perKm;
@@ -45,13 +49,32 @@ public final class TripProfitabilityAnalyzer {
         int fatigueRisk = p.getInt("fatigue_risk", 0);
         boolean paused = p.getBoolean("driver_paused", false);
 
-        double totalMin = Math.max(0.1, pickupMin + tripMin);
-        double totalKm = Math.max(0.1, pickupKm + tripKm);
+        return analyze(fare, pickupMin, pickupKm, tripMin, tripKm, consumption,
+                fuelPrice, minHourly, minPerKm, maxPickupKm,
+                p.getFloat("maintenance_per_km", 0.0f), fatigueRisk, paused);
+    }
+
+    public static Result analyze(double fare, double pickupMin, double pickupKm,
+            double tripMin, double tripKm, double consumption, double fuelPrice,
+            double minHourly, double minPerKm, double maxPickupKm,
+            double maintenancePerKm, int fatigueRisk, boolean paused) {
+        double[] values = {fare, pickupMin, pickupKm, tripMin, tripKm, consumption,
+                fuelPrice, minHourly, minPerKm, maxPickupKm, maintenancePerKm};
+        for (double value : values) {
+            if (!Double.isFinite(value) || value < 0) throw new IllegalArgumentException("Datos inválidos");
+        }
+        if (fare <= 0 || tripMin <= 0 || tripKm <= 0 || consumption <= 0
+                || fuelPrice <= 0 || minHourly <= 0 || minPerKm <= 0 || maxPickupKm <= 0)
+            throw new IllegalArgumentException("Datos incompletos");
+        double totalMin = pickupMin + tripMin;
+        double totalKm = pickupKm + tripKm;
         double liters = totalKm * consumption / 100.0;
         double fuelCost = liters * fuelPrice;
+        double maintenanceCost = totalKm * maintenancePerKm;
         double net = fare - fuelCost;
-        double hourly = net / totalMin * 60.0;
-        double perKm = net / totalKm;
+        double operatingProfit = net - maintenanceCost;
+        double hourly = operatingProfit / totalMin * 60.0;
+        double perKm = operatingProfit / totalKm;
 
         double score = 50.0;
         score += clamp((hourly / Math.max(1.0, minHourly) - 1.0) * 35.0, -25, 25);
@@ -61,13 +84,20 @@ public final class TripProfitabilityAnalyzer {
         score = clamp(score, 0, 100);
 
         Verdict verdict;
-        if (paused || fatigueRisk >= 2 || perKm < minPerKm || score < 55) {
+        // Los mínimos son condiciones obligatorias para recomendar una oferta.
+        // La puntuación no puede convertir una oferta bajo el mínimo en verde.
+        boolean hourlyOk = hourly >= minHourly;
+        boolean kmOk = perKm >= minPerKm;
+        if (paused || fatigueRisk >= 2 || operatingProfit <= 0 || (!hourlyOk && !kmOk)) {
             verdict = Verdict.DISCARD;
-        } else if (fatigueRisk == 1) {
+        } else if (!hourlyOk || !kmOk || pickupKm > maxPickupKm
+                || fatigueRisk == 1 || score < 75) {
             verdict = Verdict.REVIEW;
-        } else if (score >= 75) verdict = Verdict.ACCEPT;
-        else verdict = Verdict.REVIEW;
-        return new Result(liters, fuelCost, net, hourly, perKm, score, verdict);
+        } else {
+            verdict = Verdict.ACCEPT;
+        }
+        return new Result(liters, fuelCost, maintenanceCost, operatingProfit,
+                net, hourly, perKm, score, verdict);
     }
 
     private static double clamp(double value, double min, double max) {

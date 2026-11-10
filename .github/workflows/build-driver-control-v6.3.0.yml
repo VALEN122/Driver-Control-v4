@@ -1,4 +1,4 @@
-name: Driver Control 6.3.0 - test and APK
+name: Driver Control 6.3.1 - test and APK
 
 on:
   push:
@@ -10,7 +10,7 @@ on:
       - "android_manifest/**"
       - "android_res/**"
       - "tests/**"
-      - ".github/workflows/build-driver-control-v6.3.0.yml"
+      - ".github/workflows/build-driver-control-v6.3.1.yml"
   workflow_dispatch:
 
 permissions:
@@ -29,8 +29,8 @@ jobs:
           python3 -m py_compile main.py
           python3 -m pip install --disable-pip-version-check xlsxwriter==3.2.9
           python3 -m unittest discover -s tests -v
-          grep -q 'APP_VERSION = "6.3.0"' main.py
-          grep -q '^version = 6.3.0$' buildozer.spec
+          grep -q 'APP_VERSION = "6.3.1"' main.py
+          grep -q '^version = 6.3.1$' buildozer.spec
 
       - name: Setup JDK 17
         uses: actions/setup-java@v4
@@ -62,13 +62,15 @@ jobs:
           APK_PATH=$(find "$DIST_DIR/build/outputs/apk/debug" -name '*.apk' -print -quit)
           test -s "$APK_PATH"
           mkdir -p bin
-          cp "$APK_PATH" bin/Driver-Control-6.3.0-prueba.apk
-          unzip -t bin/Driver-Control-6.3.0-prueba.apk >/dev/null
+          cp "$APK_PATH" bin/Driver-Control-6.3.1-prueba.apk
+          unzip -t bin/Driver-Control-6.3.1-prueba.apk >/dev/null
+          grep -q 'android:foregroundServiceType="specialUse"' "$MANIFEST_PATH"
+          grep -q 'android.permission.FOREGROUND_SERVICE_SPECIAL_USE' "$MANIFEST_PATH"
 
       - name: Publish test APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Driver-Control-6.3.0-APK-PRUEBA
-          path: bin/Driver-Control-6.3.0-prueba.apk
+          name: Driver-Control-6.3.1-APK-PRUEBA
+          path: bin/Driver-Control-6.3.1-prueba.apk
           if-no-files-found: error
           retention-days: 30

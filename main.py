@@ -38,7 +38,7 @@ from insight_engine import rank_financial_insights
 APP_NAME = "Driver Control"
 APP_VERSION = "6.1.2"
 DB_FILE = "driver_control.db"
-DB_SCHEMA_VERSION = 2
+DB_SCHEMA_VERSION = 3
 DATE_FORMAT = "%d/%m/%Y"
 DATETIME_FORMAT = "%d/%m/%Y %H:%M"
 WEEKDAYS_ES = (
@@ -2698,6 +2698,7 @@ class DriverControlApp(MDApp):
                 """
             )
             self._ensure_column("trip_assessments", "decision", "TEXT")
+            self._ensure_column("work_sessions", "target_billing", "REAL")
 
             self.conn.execute(
                 "INSERT OR IGNORE INTO settings(key,value) VALUES('daily_goal',?)",
@@ -3140,6 +3141,7 @@ class DriverControlApp(MDApp):
         fields = [
             ("odometer", "Odómetro inicial", True),
             ("cash", "Efectivo inicial en caja", True),
+            ("target", "Meta de facturación de esta jornada ($)", True),
         ]
         self.input_dialog("Abrir jornada", fields, self.save_open_session)
 
@@ -3153,20 +3155,23 @@ class DriverControlApp(MDApp):
             opening_cash = self._parse_non_negative_float(
                 widgets["cash"].text or "0", "Efectivo inicial"
             )
+            target = self._parse_non_negative_float(
+                widgets["target"].text, "Meta de esta jornada", allow_zero=False
+            )
             now = datetime.now().strftime(DATETIME_FORMAT)
             with self.transaction():
                 self.conn.execute(
                     """
                     INSERT INTO work_sessions(
                         opened_at, opening_odometer, current_odometer,
-                        opening_cash, status
-                    ) VALUES(?,?,?,?,'OPEN')
+                        opening_cash, target_billing, status
+                    ) VALUES(?,?,?,?,?,'OPEN')
                     """,
-                    (now, odometer, odometer, opening_cash),
+                    (now, odometer, odometer, opening_cash, target),
                 )
             dialog.dismiss()
             self.refresh_all()
-            self.show_message("Jornada abierta", f"Inicio: {now}\nOdómetro: {odometer:.0f} km")
+            self.show_message("Jornada abierta", f"Inicio: {now}\nOdómetro: {odometer:.0f} km\nMeta: {self.money(target)}")
         except ValidationError as exc:
             self.show_message("Revisá los datos", str(exc))
         except Exception:
@@ -3752,17 +3757,14 @@ class DriverControlApp(MDApp):
         hourly_est = net_est * 60.0 / total_min
         per_km_est = net_est / total_km
 
-        hourly_score = self._clamp(hourly_est / min_hourly, 0.0, 1.25) / 1.25 * 30.0
-        km_score = self._clamp(per_km_est / min_per_km, 0.0, 1.25) / 1.25 * 25.0
-        if pickup_km <= max_pickup:
-            pickup_score = 15.0
-        else:
-            over_ratio = (pickup_km - max_pickup) / max(max_pickup, 0.1)
-            pickup_score = 15.0 * self._clamp(1.0 - over_ratio, 0.0, 1.0)
-        destination_score = {"Mala": 4.0, "Normal": 10.0, "Buena": 15.0}.get(destination, 10.0)
+        # Mismo puntaje que TripProfitabilityAnalyzer.java. El destino es contexto,
+        # no una medición verificada de Uber y no modifica el veredicto.
+        score = 50.0
+        score += self._clamp((hourly_est / min_hourly - 1.0) * 35.0, -25.0, 25.0)
+        score += self._clamp((per_km_est / min_per_km - 1.0) * 30.0, -20.0, 20.0)
+        score += 10.0 if pickup_km <= max_pickup else -min(20.0, (pickup_km - max_pickup) * 5.0)
+        score = self._clamp(score, 0.0, 100.0)
         fuel_ratio = fuel_cost / fare if fare else 1.0
-        fuel_score = 15.0 * self._clamp(1.0 - fuel_ratio, 0.0, 1.0)
-        score = self._clamp(hourly_score + km_score + pickup_score + destination_score + fuel_score, 0.0, 100.0)
 
         # Veredictos consistentes con el visor Android: verde cumple ambos mínimos.
         if (net_est <= 0 or hourly_est < min_hourly * 0.70
@@ -4761,15 +4763,30 @@ class DriverControlApp(MDApp):
         dashboard.fuel_reserve_text = f"A reponer: {self.money(metrics['fuel_cost'])}"
         dashboard.goal_text = f"{self.money(metrics['income'])} / {self.money(period_goal)}"
         dashboard.goal_percent = self._percent(metrics["income"], period_goal)
-        goal_today = self._setting_float("daily_goal", DEFAULT_DAILY_GOAL)
-        earned_today = daily_metrics["income"]
-        remaining_today = max(0.0, goal_today - earned_today)
-        self.root.get_screen("cash").journey_goal_text = (
-            f"Meta de facturación de hoy: {self.money(earned_today)} / {self.money(goal_today)}"
-            + (" · Alcanzada" if remaining_today == 0
-               else f" · Faltan {self.money(remaining_today)}")
-            + " · Solo ingresos registrados"
-        )
+        if session is not None:
+            goal_session = float(session["target_billing"] or 0.0) or self._setting_float(
+                "daily_goal", DEFAULT_DAILY_GOAL
+            )
+            summary = self._session_summary(int(session["id"]))
+            if summary is not None:
+                earned_session = float(summary["income_total"] or 0.0)
+            else:
+                earned_session = float(self.conn.execute(
+                    "SELECT COALESCE(SUM(amount),0) FROM trips WHERE session_id=?",
+                    (int(session["id"]),),
+                ).fetchone()[0])
+            remaining_session = max(0.0, goal_session - earned_session)
+            self.root.get_screen("cash").journey_goal_text = (
+                f"Meta de esta jornada: {self.money(earned_session)} / {self.money(goal_session)}"
+                + (" · Alcanzada" if remaining_session == 0
+                   else f" · Faltan {self.money(remaining_session)}")
+                + " · Solo ingresos registrados"
+            )
+        else:
+            self.root.get_screen("cash").journey_goal_text = (
+                f"Meta diaria: {self.money(daily_metrics['income'])} / "
+                f"{self.money(self._setting_float('daily_goal', DEFAULT_DAILY_GOAL))}"
+            )
         remaining = max(period_goal - metrics["income"], 0.0)
         dashboard.daily_remaining_text = self._goal_progress_message(
             dashboard.goal_percent,
@@ -5361,6 +5378,10 @@ class DriverControlApp(MDApp):
             field = MDTextField(hint_text=hint)
             if key == "payment":
                 field.text = PAYMENT_CASH
+            elif key == "target":
+                field.text = self._compact_number(
+                    self._setting_float("daily_goal", DEFAULT_DAILY_GOAL)
+                )
             elif key == "odometer":
                 current_odometer = self._current_odometer()
                 field.text = self._compact_number(current_odometer) if current_odometer > 0 else ""

@@ -54,7 +54,7 @@ class AndroidIntegrationSourceTest(unittest.TestCase):
         source = (ROOT / "main.py").read_text(encoding="utf-8")
         spec = (ROOT / "buildozer.spec").read_text(encoding="utf-8")
 
-        self.assertIn('APP_VERSION = "6.1.2"', source)
+        self.assertIn('APP_VERSION = "6.3.0"', source)
         self.assertIn('text: "DINERO REAL QUE TE QUEDÓ · "', source)
         self.assertIn(
             'dashboard.session_action_text = "FINALIZAR Y VER MI GANANCIA"',

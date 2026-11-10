@@ -176,11 +176,11 @@ public final class DriverCopilotCoordinator {
                 || lower.contains("importe") || lower.contains("paga");
         if (!hasMinutes && !hasKm) {
             List<Double> amounts = extractAmounts(text);
-            if (!amounts.isEmpty() && (cashHint || amounts.size() == 1)) {
-                double best = amounts.get(0);
-                if (cashHint) for (double value : amounts) best = Math.max(best, value);
+            // Un importe aislado también puede ser saldo, promoción o un dato ajeno.
+            // No abrir el vuelto sin contexto de cobro y sin un importe inequívoco.
+            if (cashHint && amounts.size() == 1) {
                 return new VisionDecision(
-                        ScreenType.CASH_COLLECTION, best, cashHint ? 0.96f : 0.78f);
+                        ScreenType.CASH_COLLECTION, amounts.get(0), 0.96f);
             }
         }
         return new VisionDecision(ScreenType.IRRELEVANT, -1.0, 0.0f);

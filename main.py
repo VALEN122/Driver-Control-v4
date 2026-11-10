@@ -60,6 +60,7 @@ DEFAULT_ASSISTANT_MIN_HOURLY = 15000.0
 DEFAULT_ASSISTANT_MIN_PER_KM = 300.0
 DEFAULT_ASSISTANT_MAX_PICKUP_KM = 3.0
 DEFAULT_TANK_CAPACITY = 55.0
+DEFAULT_WEAR_PER_KM = 0.0  # Costo opcional por km
 DEFAULT_AI_SERVER_URL = ""
 DEFAULT_AI_ACCESS_TOKEN = ""
 
@@ -1017,6 +1018,14 @@ ScreenManager:
                         bold: True
                         size_hint_y: None
                         height: dp(42)
+
+                MDLabel:
+                    text: root.journey_goal_text
+                    theme_text_color: "Custom"
+                    text_color: app.muted_color
+                    size_hint_y: None
+                    text_size: self.width, None
+                    height: self.texture_size[1] + dp(12)
 
                 MDLabel:
                     text: root.reconciliation_text
@@ -2059,6 +2068,13 @@ ScreenManager:
                     input_filter: "float"
 
                 MDTextField:
+                    id: wear_per_km
+                    hint_text: "Desgaste y mantenimiento estimado ($/km)"
+                    helper_text: "Reserva por km para mantenimiento; 0 lo desactiva"
+                    helper_text_mode: "on_focus"
+                    input_filter: "float"
+
+                MDTextField:
                     id: tank_capacity
                     hint_text: "Capacidad del tanque (L)"
                     helper_text: "Se usa solamente para calcular cuánto cargar"
@@ -2336,6 +2352,7 @@ class CashScreen(Screen):
     profit_text = StringProperty("$0")
     profit_detail_text = StringProperty("Ingresos menos combustible y gastos")
     reconciliation_text = StringProperty("Todos los cobros conocidos están clasificados.")
+    journey_goal_text = StringProperty("Meta de facturación de hoy: sin datos")
     session_action_text = StringProperty("ABRIR JORNADA")
 
 
@@ -2701,6 +2718,10 @@ class DriverControlApp(MDApp):
             self.conn.execute(
                 "INSERT OR IGNORE INTO settings(key,value) VALUES('fuel_price',?)",
                 (str(DEFAULT_FUEL_PRICE),),
+            )
+            self.conn.execute(
+                "INSERT OR IGNORE INTO settings(key,value) VALUES('wear_per_km',?)",
+                (str(DEFAULT_WEAR_PER_KM),),
             )
             self.conn.execute(
                 "INSERT OR IGNORE INTO settings(key,value) VALUES('assistant_min_hourly',?)",
@@ -3726,7 +3747,8 @@ class DriverControlApp(MDApp):
 
         fuel_liters = total_km * consumption / 100.0
         fuel_cost = fuel_liters * fuel_price
-        net_est = fare - fuel_cost
+        wear_cost = total_km * self._setting_float("wear_per_km", DEFAULT_WEAR_PER_KM)
+        net_est = fare - fuel_cost - wear_cost
         hourly_est = net_est * 60.0 / total_min
         per_km_est = net_est / total_km
 
@@ -3742,23 +3764,18 @@ class DriverControlApp(MDApp):
         fuel_score = 15.0 * self._clamp(1.0 - fuel_ratio, 0.0, 1.0)
         score = self._clamp(hourly_score + km_score + pickup_score + destination_score + fuel_score, 0.0, 100.0)
 
-        # Regla dura configurable: si el viaje queda por debajo del mínimo por km,
-        # se rechaza la recomendación aunque el puntaje general sea alto.
-        if per_km_est < min_per_km:
+        # Veredictos consistentes con el visor Android: verde cumple ambos mínimos.
+        if (net_est <= 0 or hourly_est < min_hourly * 0.70
+                or per_km_est < min_per_km * 0.70):
             recommendation = "NO CONVIENE"
             color = (0.86, 0.16, 0.18, 1)
-        elif score >= 80:
-            recommendation = "EXCELENTE"
-            color = (0.05, 0.60, 0.26, 1)
-        elif score >= 65:
-            recommendation = "CONVIENE"
-            color = (0.05, 0.60, 0.26, 1)
-        elif score >= 45:
+        elif (hourly_est < min_hourly or per_km_est < min_per_km
+                or pickup_km > max_pickup or score < 75):
             recommendation = "DUDOSO"
             color = (0.92, 0.55, 0.05, 1)
         else:
-            recommendation = "NO CONVIENE"
-            color = (0.86, 0.16, 0.18, 1)
+            recommendation = "CONVIENE"
+            color = (0.05, 0.60, 0.26, 1)
 
         reasons = []
         if hourly_est >= min_hourly:
@@ -3790,6 +3807,7 @@ class DriverControlApp(MDApp):
             "total_km": total_km,
             "fuel_liters": fuel_liters,
             "fuel_cost": fuel_cost,
+            "wear_cost": wear_cost,
             "net_est": net_est,
             "hourly_est": hourly_est,
             "per_km_est": per_km_est,
@@ -3812,6 +3830,7 @@ class DriverControlApp(MDApp):
             editor = prefs.edit()
             editor.putFloat("fuel_consumption", float(self._setting_float("fuel_consumption", DEFAULT_FUEL_CONSUMPTION)))
             editor.putFloat("fuel_price", float(self._setting_float("fuel_price", DEFAULT_FUEL_PRICE)))
+            editor.putFloat("wear_per_km", float(self._setting_float("wear_per_km", DEFAULT_WEAR_PER_KM)))
             editor.putFloat("min_hourly", float(self._setting_float("assistant_min_hourly", DEFAULT_ASSISTANT_MIN_HOURLY)))
             editor.putFloat("min_per_km", float(self._setting_float("assistant_min_per_km", DEFAULT_ASSISTANT_MIN_PER_KM)))
             editor.putFloat("max_pickup_km", float(self._setting_float("assistant_max_pickup_km", DEFAULT_ASSISTANT_MAX_PICKUP_KM)))
@@ -4450,6 +4469,9 @@ class DriverControlApp(MDApp):
         settings_screen.ids.fuel_price.text = self._compact_number(
             self._setting_float("fuel_price", DEFAULT_FUEL_PRICE)
         )
+        settings_screen.ids.wear_per_km.text = self._compact_number(
+            self._setting_float("wear_per_km", DEFAULT_WEAR_PER_KM)
+        )
         settings_screen.ids.assistant_min_hourly.text = self._compact_number(
             self._setting_float("assistant_min_hourly", DEFAULT_ASSISTANT_MIN_HOURLY)
         )
@@ -4739,6 +4761,15 @@ class DriverControlApp(MDApp):
         dashboard.fuel_reserve_text = f"A reponer: {self.money(metrics['fuel_cost'])}"
         dashboard.goal_text = f"{self.money(metrics['income'])} / {self.money(period_goal)}"
         dashboard.goal_percent = self._percent(metrics["income"], period_goal)
+        goal_today = self._setting_float("daily_goal", DEFAULT_DAILY_GOAL)
+        earned_today = daily_metrics["income"]
+        remaining_today = max(0.0, goal_today - earned_today)
+        self.root.get_screen("cash").journey_goal_text = (
+            f"Meta de facturación de hoy: {self.money(earned_today)} / {self.money(goal_today)}"
+            + (" · Alcanzada" if remaining_today == 0
+               else f" · Faltan {self.money(remaining_today)}")
+            + " · Solo ingresos registrados"
+        )
         remaining = max(period_goal - metrics["income"], 0.0)
         dashboard.daily_remaining_text = self._goal_progress_message(
             dashboard.goal_percent,
@@ -4859,6 +4890,9 @@ class DriverControlApp(MDApp):
         )
         settings.ids.fuel_price.text = self._compact_number(
             self._setting_float("fuel_price", DEFAULT_FUEL_PRICE)
+        )
+        settings.ids.wear_per_km.text = self._compact_number(
+            self._setting_float("wear_per_km", DEFAULT_WEAR_PER_KM)
         )
         settings.ids.tank_capacity.text = self._compact_number(
             self._setting_float("tank_capacity", DEFAULT_TANK_CAPACITY)
@@ -5832,6 +5866,9 @@ class DriverControlApp(MDApp):
             fuel_price = self._parse_non_negative_float(
                 screen.ids.fuel_price.text, "Precio de nafta", allow_zero=False
             )
+            wear_per_km = self._parse_non_negative_float(
+                screen.ids.wear_per_km.text, "Desgaste por km"
+            )
             tank_capacity = self._parse_non_negative_float(
                 screen.ids.tank_capacity.text, "Capacidad del tanque", allow_zero=False
             )
@@ -5869,6 +5906,10 @@ class DriverControlApp(MDApp):
                 self.conn.execute(
                     "INSERT OR REPLACE INTO settings(key,value) VALUES('fuel_price',?)",
                     (str(fuel_price),),
+                )
+                self.conn.execute(
+                    "INSERT OR REPLACE INTO settings(key,value) VALUES('wear_per_km',?)",
+                    (str(wear_per_km),),
                 )
                 self.conn.execute(
                     "INSERT OR REPLACE INTO settings(key,value) VALUES('tank_capacity',?)",

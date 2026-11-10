@@ -61,7 +61,7 @@ class AndroidIntegrationSourceTest(unittest.TestCase):
             source,
         )
         self.assertIn("def create_database_backup", source)
-        self.assertIn("version = 6.1.2", spec)
+        self.assertIn("version = 6.3.0", spec)
 
 
     def test_driver_control_brand_replaces_default_kivy_startup(self):

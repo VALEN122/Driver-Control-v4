@@ -8,10 +8,10 @@ source.exclude_dirs = tests
 icon.filename = %(source.dir)s/assets/branding/driver_control_icon.png
 presplash.filename = %(source.dir)s/assets/branding/driver_control_splash.png
 android.presplash_color = #041F3E
-version = 6.3.0
+version = 6.3.1
 requirements = python3,kivy==2.3.0,kivymd==1.2.0,hostpython3,android,pyjnius,requests,xlsxwriter==3.2.9
 android.gradle_dependencies = com.google.mlkit:text-recognition:16.0.1,androidx.core:core:1.9.0
-android.permissions = INTERNET,FOREGROUND_SERVICE,POST_NOTIFICATIONS,SYSTEM_ALERT_WINDOW,VIBRATE
+android.permissions = INTERNET,FOREGROUND_SERVICE,FOREGROUND_SERVICE_SPECIAL_USE,POST_NOTIFICATIONS,SYSTEM_ALERT_WINDOW,VIBRATE
 orientation = portrait
 fullscreen = 0
 android.api = 34

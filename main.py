@@ -27,7 +27,7 @@ from insight_engine import rank_financial_insights
 
 
 # ============================================================
-# Driver Control v6.3.0 (compilación de prueba)
+# Driver Control v6.3.1 (corrección Android)
 # Mejoras aplicadas:
 # - Valor actual de nafta dinámico y persistente con respaldo histórico.
 # - Exportación completa de datos operativos a un libro Excel.
@@ -36,7 +36,7 @@ from insight_engine import rank_financial_insights
 # ============================================================
 
 APP_NAME = "Driver Control"
-APP_VERSION = "6.3.0"
+APP_VERSION = "6.3.1"
 DB_FILE = "driver_control.db"
 DB_SCHEMA_VERSION = 3
 DATE_FORMAT = "%d/%m/%Y"

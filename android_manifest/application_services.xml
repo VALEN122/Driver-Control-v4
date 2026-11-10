@@ -13,7 +13,12 @@
 
 <service
     android:name="org.drivercontrol.drivercontrol.DriverOverlayService"
-    android:exported="false" />
+    android:exported="false"
+    android:foregroundServiceType="specialUse">
+    <property
+        android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+        android:value="User-activated persistent overlay for ride offer assistance and cash change calculation" />
+</service>
 
 <provider
     android:name="androidx.core.content.FileProvider"

@@ -1,0 +1,74 @@
+name: Driver Control 6.3.0 - test and APK
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "main.py"
+      - "buildozer.spec"
+      - "android_src/**"
+      - "android_manifest/**"
+      - "android_res/**"
+      - "tests/**"
+      - ".github/workflows/build-driver-control-v6.3.0.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test-and-build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 100
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test Python source and contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m py_compile main.py
+          python3 -m pip install --disable-pip-version-check xlsxwriter==3.2.9
+          python3 -m unittest discover -s tests -v
+          grep -q 'APP_VERSION = "6.3.0"' main.py
+          grep -q '^version = 6.3.0$' buildozer.spec
+
+      - name: Setup JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Build APK and compile native analyzer
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Buildozer does not inject <service> XML from extra manifest arguments.
+          sed -i '/^android.extra_manifest_application_arguments[[:space:]]*=/d' buildozer.spec
+          docker run --rm -v "$PWD":/home/user/hostcwd ghcr.io/kivy/buildozer:latest android debug
+          sudo chown -R "$(id -u):$(id -g)" .buildozer bin || true
+          MANIFEST_PATH=$(find .buildozer/android/platform -path '*/dists/drivercontrol/src/main/AndroidManifest.xml' -print -quit)
+          test -n "$MANIFEST_PATH"
+          DIST_DIR=$(dirname "$(dirname "$(dirname "$MANIFEST_PATH")")")
+          if ! grep -q UberOfferAccessibilityService "$MANIFEST_PATH"; then
+            sed -i '/<\/application>/e cat android_manifest/application_services.xml' "$MANIFEST_PATH"
+          fi
+          JAVA_DST="$DIST_DIR/src/main/java/org/drivercontrol/drivercontrol"
+          mkdir -p "$JAVA_DST"
+          cp -v android_src/org/drivercontrol/drivercontrol/*.java "$JAVA_DST/"
+          test -s "$JAVA_DST/TripProfitabilityAnalyzer.java"
+          test -s "$JAVA_DST/DriverOverlayService.java"
+          test -s "$JAVA_DST/DriverCopilotCoordinator.java"
+          (cd "$DIST_DIR" && ./gradlew clean assembleDebug)
+          APK_PATH=$(find "$DIST_DIR/build/outputs/apk/debug" -name '*.apk' -print -quit)
+          test -s "$APK_PATH"
+          mkdir -p bin
+          cp "$APK_PATH" bin/Driver-Control-6.3.0-prueba.apk
+          unzip -t bin/Driver-Control-6.3.0-prueba.apk >/dev/null
+
+      - name: Publish test APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Driver-Control-6.3.0-APK-PRUEBA
+          path: bin/Driver-Control-6.3.0-prueba.apk
+          if-no-files-found: error
+          retention-days: 30

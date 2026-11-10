@@ -46,6 +46,13 @@ class AndroidIntegrationSourceTest(unittest.TestCase):
         self.assertIn("<cache-path", paths)
         self.assertIn('path="driver_control_exports/"', paths)
 
+    def test_android_14_overlay_service_has_required_fgs_type(self):
+        manifest = (ROOT / "android_manifest/application_services.xml").read_text(encoding="utf-8")
+        spec = (ROOT / "buildozer.spec").read_text(encoding="utf-8")
+        self.assertIn('android:foregroundServiceType="specialUse"', manifest)
+        self.assertIn('android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE', manifest)
+        self.assertIn('FOREGROUND_SERVICE_SPECIAL_USE', spec)
+
     def test_file_provider_dependency_is_packaged(self):
         spec = (ROOT / "buildozer.spec").read_text(encoding="utf-8")
         self.assertIn("androidx.core:core:1.9.0", spec)

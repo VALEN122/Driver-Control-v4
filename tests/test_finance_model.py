@@ -185,6 +185,37 @@ class FinanceModelTest(unittest.TestCase):
         self.assertEqual(session["cash_expected"], 5000)
         self.assertEqual(session["net"], 1000)
 
+    def test_per_session_billing_target_schema_and_wear_default(self):
+        columns = {
+            row["name"] for row in self.app.conn.execute("PRAGMA table_info(work_sessions)")
+        }
+        self.assertIn("target_billing", columns)
+        self.assertEqual(self.app._setting_float("wear_per_km", -1.0), 0.0)
+
+    def test_manual_offer_deducts_wear_and_never_green_below_minimum(self):
+        with self.app.transaction():
+            for key, value in (
+                ("fuel_consumption", "8"),
+                ("fuel_price", "2000"),
+                ("wear_per_km", "200"),
+                ("assistant_min_hourly", "15000"),
+                ("assistant_min_per_km", "300"),
+                ("assistant_max_pickup_km", "3"),
+            ):
+                self.app.conn.execute(
+                    "INSERT OR REPLACE INTO settings(key,value) VALUES(?,?)",
+                    (key, value),
+                )
+        low = self.app._assistant_result(5000, 5, 1, 25, 9, "Normal")
+        self.assertEqual(low["fuel_cost"], 1600)
+        self.assertEqual(low["wear_cost"], 2000)
+        self.assertEqual(low["net_est"], 1400)
+        self.assertEqual(low["recommendation"], "NO CONVIENE")
+
+        high = self.app._assistant_result(30000, 5, 1, 25, 9, "Normal")
+        self.assertEqual(high["net_est"], 26400)
+        self.assertEqual(high["recommendation"], "CONVIENE")
+
     def test_schema_contains_new_financial_and_vehicle_fields(self):
         trip_columns = {
             row["name"] for row in self.app.conn.execute("PRAGMA table_info(trips)")

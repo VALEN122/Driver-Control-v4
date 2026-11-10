@@ -263,11 +263,11 @@ public class DriverOverlayService extends Service {
                 18,
                 a.accentColor
         ));
-        headlineView.setText("Deja " + money(a.net) + "  ·  " + money(a.perKm) + "/km");
+        headlineView.setText("Estimado " + money(a.net) + " · " + money(a.perKm) + "/km");
         metricsView.setText(
-                money(a.hourly) + "/h  ·  Nafta " + money(a.fuelCost)
-                        + "  ·  " + fmt1(a.offer.pickupKm + a.offer.tripKm) + " km"
-                        + "\nFactor: " + a.reason
+                money(a.hourly) + "/h · Nafta " + money(a.fuelCost)
+                        + " · Desgaste " + money(a.wearCost)
+                        + "\n" + fmt1(a.offer.pickupKm + a.offer.tripKm) + " km · " + a.reason
         );
 
         if (tripOverlay.getParent() == null) {
@@ -282,7 +282,7 @@ public class DriverOverlayService extends Service {
     private void createTripOverlay() {
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
-        box.setPadding(dp(13), dp(10), dp(13), dp(10));
+        box.setPadding(dp(9), dp(6), dp(9), dp(6));
         box.setBackground(rounded(
                 Color.argb(245, 17, 24, 32),
                 16,
@@ -290,11 +290,12 @@ public class DriverOverlayService extends Service {
         ));
         box.setElevation(dp(8));
 
-        verdictView = textView(24, true, Color.WHITE);
+        verdictView = textView(17, true, Color.WHITE);
         verdictView.setGravity(Gravity.CENTER);
-        headlineView = textView(18, true, Color.WHITE);
+        headlineView = textView(14, true, Color.WHITE);
         headlineView.setGravity(Gravity.CENTER);
-        metricsView = textView(13, false, Color.rgb(210, 220, 230));
+        metricsView = textView(11, false, Color.rgb(210, 220, 230));
+        metricsView.setVisibility(View.GONE); // Tocar para expandir.
         box.addView(verdictView);
         box.addView(headlineView);
         box.addView(metricsView);
@@ -306,7 +307,7 @@ public class DriverOverlayService extends Service {
 
     private WindowManager.LayoutParams tripLayoutParams() {
         WindowManager.LayoutParams lp = new WindowManager.LayoutParams(
-                Math.min(dp(330), getResources().getDisplayMetrics().widthPixels - dp(24)),
+                Math.min(dp(260), getResources().getDisplayMetrics().widthPixels - dp(24)),
                 WindowManager.LayoutParams.WRAP_CONTENT,
                 WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
@@ -796,7 +797,13 @@ public class DriverOverlayService extends Service {
         double minPerKm = prefs.getFloat("min_per_km", 300.0f);
         double maxPickup = prefs.getFloat("max_pickup_km", 3.0f);
         String reason;
-        if (result.perKm < minPerKm) {
+        if (prefs.getBoolean("driver_paused", false)) {
+            reason = "pausa activa";
+        } else if (prefs.getInt("fatigue_risk", 0) >= 2) {
+            reason = "fatiga elevada";
+        } else if (result.netProfit <= 0) {
+            reason = "sin ganancia estimada";
+        } else if (result.perKm < minPerKm) {
             reason = "$/km bajo";
         } else if (result.perHour < minHourly) {
             reason = "$/hora bajo";
@@ -806,7 +813,7 @@ public class DriverOverlayService extends Service {
             reason = "supera tus mínimos";
         }
         return new Analysis(
-                offer, result.liters, result.fuelCost, result.netProfit,
+                offer, result.liters, result.fuelCost, result.wearCost, result.netProfit,
                 result.perHour, result.perKm, result.score, verdict, reason, accent);
     }
 
@@ -862,6 +869,7 @@ public class DriverOverlayService extends Service {
         final OfferParser.Offer offer;
         final double liters;
         final double fuelCost;
+        final double wearCost;
         final double net;
         final double hourly;
         final double perKm;
@@ -874,6 +882,7 @@ public class DriverOverlayService extends Service {
                 OfferParser.Offer offer,
                 double liters,
                 double fuelCost,
+                double wearCost,
                 double net,
                 double hourly,
                 double perKm,
@@ -885,6 +894,7 @@ public class DriverOverlayService extends Service {
             this.offer = offer;
             this.liters = liters;
             this.fuelCost = fuelCost;
+            this.wearCost = wearCost;
             this.net = net;
             this.hourly = hourly;
             this.perKm = perKm;

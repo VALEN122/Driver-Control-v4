@@ -8,6 +8,7 @@ import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.content.pm.ServiceInfo;
 import android.graphics.Color;
 import android.graphics.PixelFormat;
 import android.graphics.drawable.GradientDrawable;
@@ -33,14 +34,10 @@ import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.TextView;
+import android.util.Log;
 
 import java.text.NumberFormat;
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.List;
 import java.util.Locale;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 /**
  * Flotante independiente de Accesibilidad.
@@ -50,6 +47,7 @@ import java.util.regex.Pattern;
  * de vuelto independiente. Nunca pulsa botones de Uber.</p>
  */
 public class DriverOverlayService extends Service {
+    private static final String TAG = "DriverControlOverlay";
     public static final String ACTION_START = "org.drivercontrol.drivercontrol.OVERLAY_START";
     public static final String ACTION_STOP = "org.drivercontrol.drivercontrol.OVERLAY_STOP";
     public static final String ACTION_SOURCE_TEXT = "org.drivercontrol.drivercontrol.SOURCE_TEXT";
@@ -125,7 +123,37 @@ public class DriverOverlayService extends Service {
             return START_NOT_STICKY;
         }
 
-        startForeground(NOTIFICATION_ID, buildNotification());
+        try {
+            Notification notification = buildNotification();
+            if (Build.VERSION.SDK_INT >= 34) {
+                startForeground(
+                        NOTIFICATION_ID,
+                        notification,
+                        ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+                );
+            } else {
+                startForeground(NOTIFICATION_ID, notification);
+            }
+            getSharedPreferences("driver_control_overlay", MODE_PRIVATE)
+                    .edit()
+                    .putString("overlay_start_error", "")
+                    .putLong("overlay_started_at", System.currentTimeMillis())
+                    .apply();
+        } catch (Throwable error) {
+            // Android 14+ cierra el proceso si el tipo/permisos del servicio en
+            // primer plano no coinciden. Mantener la excepción dentro del servicio
+            // evita derribar también el lector de Accesibilidad.
+            String reason = error.getClass().getSimpleName();
+            Log.e(TAG, "Could not enter foreground mode: " + reason, error);
+            getSharedPreferences("driver_control_overlay", MODE_PRIVATE)
+                    .edit()
+                    .putString("overlay_start_error", reason)
+                    .putString("last_reader_status", "Flotante no disponible · " + reason)
+                    .putLong("last_reader_at", System.currentTimeMillis())
+                    .apply();
+            stopSelf(startId);
+            return START_NOT_STICKY;
+        }
 
         if (Settings.canDrawOverlays(this)) showChangeBubble();
 
@@ -183,7 +211,11 @@ public class DriverOverlayService extends Service {
         updateReaderStatus(diagnostic, parsed.excerpt);
 
         if (parsed.offer == null || !parsed.offer.isUsable()) {
-            if (parsed.candidate) showTransientStatus(diagnostic, true);
+            if (parsed.candidate) {
+                hideTripOverlay();
+                lastSignature = "";
+                showTransientStatus("Lectura dudosa · " + parsed.diagnostic, true);
+            }
             return;
         }
 
@@ -263,11 +295,14 @@ public class DriverOverlayService extends Service {
                 18,
                 a.accentColor
         ));
-        headlineView.setText("Deja " + money(a.net) + "  ·  " + money(a.perKm) + "/km");
+        headlineView.setText("Tras costos " + money(a.net) + "  ·  " + money(a.perKm) + "/km");
         metricsView.setText(
                 money(a.hourly) + "/h  ·  Nafta " + money(a.fuelCost)
                         + "  ·  " + fmt1(a.offer.pickupKm + a.offer.tripKm) + " km"
-                        + "\nFactor: " + a.reason
+                        + "\nReserva " + money((a.offer.pickupKm + a.offer.tripKm)
+                            * getSharedPreferences("driver_control_overlay", MODE_PRIVATE)
+                            .getFloat("maintenance_per_km", 0.0f))
+                        + " · " + a.reason
         );
 
         if (tripOverlay.getParent() == null) {
@@ -282,7 +317,7 @@ public class DriverOverlayService extends Service {
     private void createTripOverlay() {
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
-        box.setPadding(dp(13), dp(10), dp(13), dp(10));
+        box.setPadding(dp(10), dp(7), dp(10), dp(7));
         box.setBackground(rounded(
                 Color.argb(245, 17, 24, 32),
                 16,
@@ -290,9 +325,9 @@ public class DriverOverlayService extends Service {
         ));
         box.setElevation(dp(8));
 
-        verdictView = textView(24, true, Color.WHITE);
+        verdictView = textView(18, true, Color.WHITE);
         verdictView.setGravity(Gravity.CENTER);
-        headlineView = textView(18, true, Color.WHITE);
+        headlineView = textView(15, true, Color.WHITE);
         headlineView.setGravity(Gravity.CENTER);
         metricsView = textView(13, false, Color.rgb(210, 220, 230));
         box.addView(verdictView);
@@ -306,7 +341,7 @@ public class DriverOverlayService extends Service {
 
     private WindowManager.LayoutParams tripLayoutParams() {
         WindowManager.LayoutParams lp = new WindowManager.LayoutParams(
-                Math.min(dp(330), getResources().getDisplayMetrics().widthPixels - dp(24)),
+                Math.min(dp(290), getResources().getDisplayMetrics().widthPixels - dp(24)),
                 WindowManager.LayoutParams.WRAP_CONTENT,
                 WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
@@ -796,17 +831,21 @@ public class DriverOverlayService extends Service {
         double minPerKm = prefs.getFloat("min_per_km", 300.0f);
         double maxPickup = prefs.getFloat("max_pickup_km", 3.0f);
         String reason;
-        if (result.perKm < minPerKm) {
-            reason = "$/km bajo";
+        if (prefs.getBoolean("driver_paused", false)) {
+            reason = "pausa activa";
+        } else if (prefs.getInt("fatigue_risk", 0) >= 1) {
+            reason = "fatiga informada; revisá tu descanso";
+        } else if (result.perKm < minPerKm) {
+            reason = money(result.perKm) + "/km < mínimo " + money(minPerKm) + "/km";
         } else if (result.perHour < minHourly) {
-            reason = "$/hora bajo";
+            reason = money(result.perHour) + "/h < mínimo " + money(minHourly) + "/h";
         } else if (offer.pickupKm > maxPickup) {
-            reason = "acercamiento largo";
+            reason = "acercamiento " + fmt1(offer.pickupKm) + " km > máximo " + fmt1(maxPickup) + " km";
         } else {
             reason = "supera tus mínimos";
         }
         return new Analysis(
-                offer, result.liters, result.fuelCost, result.netProfit,
+                offer, result.liters, result.fuelCost, result.operatingProfit,
                 result.perHour, result.perKm, result.score, verdict, reason, accent);
     }
 
@@ -849,7 +888,7 @@ public class DriverOverlayService extends Service {
         }
         changePanel = null;
         removeChangeBubble();
-        stopForeground(true);
+        try { stopForeground(true); } catch (Throwable ignored) {}
         super.onDestroy();
     }
 
@@ -895,318 +934,5 @@ public class DriverOverlayService extends Service {
         }
     }
 
-    /** Parser local tolerante de ofertas de Uber. */
-    private static final class OfferParser {
-
-            private OfferParser() {}
-
-            private static final Pattern MONEY = Pattern.compile(
-                    "(?i)(?<!\\w)(?:ARS\\s*|\\$\\s*)([0-9OIl|][0-9OIl|.,\\s]*)");
-            private static final Pattern MINUTES = Pattern.compile(
-                    "(?i)([0-9OIl|]+(?:[.,][0-9OIl|]+)?)\\s*(?:min\\.?|minuto(?:s)?)\\b");
-            private static final Pattern KM = Pattern.compile(
-                    "(?i)([0-9OIl|]+(?:[.,][0-9OIl|]+)?)\\s*(?:km|kil[oó]metro(?:s)?)\\b");
-            private static final Pattern MIN_THEN_KM = Pattern.compile(
-                    "(?i)([0-9OIl|]+(?:[.,][0-9OIl|]+)?)\\s*(?:min\\.?|minuto(?:s)?)\\b.{0,100}?"
-                            + "([0-9OIl|]+(?:[.,][0-9OIl|]+)?)\\s*(?:km|kil[oó]metro(?:s)?)\\b");
-            private static final Pattern KM_THEN_MIN = Pattern.compile(
-                    "(?i)([0-9OIl|]+(?:[.,][0-9OIl|]+)?)\\s*(?:km|kil[oó]metro(?:s)?)\\b.{0,100}?"
-                            + "([0-9OIl|]+(?:[.,][0-9OIl|]+)?)\\s*(?:min\\.?|minuto(?:s)?)\\b");
-
-            private static final String[] PICKUP_HINTS = {
-                    "para llegar", "a buscar", "buscar", "recoger", "recogida", "pickup",
-                    "hasta el punto", "para recoger", "llegar al pasajero"
-            };
-            private static final String[] TRIP_HINTS = {
-                    "de viaje", "viaje", "duración", "duracion", "trayecto", "destino",
-                    "hasta destino", "recorrido"
-            };
-            private static final String[] OFFER_HINTS = {
-                    "uberx", "comfort", "moto", "solicitud", "oferta", "aceptar", "aceptá",
-                    "acepta", "tarifa", "ganás", "ganas", "incluye", "destino", "recoger",
-                    "para llegar", "de viaje"
-            };
-
-            public static ParseResult parse(String raw) {
-                if (raw == null || raw.trim().isEmpty()) {
-                    return ParseResult.failure("sin texto", false, "");
-                }
-
-                List<String> lines = sanitizeLines(raw);
-                if (lines.isEmpty()) {
-                    return ParseResult.failure("sin texto útil", false, "");
-                }
-
-                String joined = join(lines, " | ");
-                boolean hasMoney = MONEY.matcher(joined).find();
-                boolean hasMinutes = MINUTES.matcher(joined).find();
-                boolean hasKm = KM.matcher(joined).find();
-                boolean candidate = hasMoney || (hasMinutes && hasKm) || containsAny(joined.toLowerCase(Locale.ROOT), OFFER_HINTS);
-
-                double fare = chooseFare(lines);
-                if (fare < 100.0) {
-                    return ParseResult.failure("falta tarifa", candidate, excerpt(joined));
-                }
-
-                List<MetricPair> pairs = extractPairs(lines);
-                MetricPair pickup = null;
-                MetricPair trip = null;
-
-                for (MetricPair p : pairs) {
-                    if (pickup == null && containsAny(p.context, PICKUP_HINTS)) pickup = p;
-                    if (trip == null && containsAny(p.context, TRIP_HINTS)) trip = p;
-                }
-
-                if (pairs.size() >= 2) {
-                    if (pickup == null && trip == null) {
-                        pickup = pairs.get(0);
-                        trip = pairs.get(1);
-                    } else if (pickup == null) {
-                        pickup = firstDifferent(pairs, trip);
-                    } else if (trip == null) {
-                        trip = firstDifferent(pairs, pickup);
-                    }
-                }
-
-                if (pickup == null || trip == null) {
-                    List<Double> mins = findAll(MINUTES, joined, 1);
-                    List<Double> kms = findAll(KM, joined, 1);
-                    if (mins.size() >= 2 && kms.size() >= 2) {
-                        if (pickup == null) pickup = new MetricPair(mins.get(0), kms.get(0), "fallback");
-                        if (trip == null) trip = new MetricPair(mins.get(1), kms.get(1), "fallback");
-                    }
-                }
-
-                if (pickup == null) {
-                    return ParseResult.failure("faltan minutos/km para buscar", true, excerpt(joined));
-                }
-                if (trip == null) {
-                    return ParseResult.failure("faltan minutos/km del viaje", true, excerpt(joined));
-                }
-                if (!isReasonablePair(pickup) || !isReasonablePair(trip)) {
-                    return ParseResult.failure("datos fuera de rango", true, excerpt(joined));
-                }
-
-                Offer offer = new Offer(fare, pickup.minutes, pickup.km, trip.minutes, trip.km);
-                return ParseResult.success(offer, excerpt(joined));
-            }
-
-            private static List<String> sanitizeLines(String raw) {
-                List<String> out = new ArrayList<>();
-                String[] split = raw.replace('\u00A0', ' ').split("\\r?\\n");
-                for (String line : split) {
-                    String cleaned = line == null ? "" : line.trim().replaceAll("\\s+", " ");
-                    if (cleaned.isEmpty()) continue;
-                    String lower = cleaned.toLowerCase(Locale.ROOT);
-                    // Evita que OCR vuelva a analizar el propio flotante de Driver Control.
-                    if (lower.contains("driver control") || lower.contains("vuelto ") || lower.equals("vuelto")
-                            || lower.contains("nafta ") || lower.contains("$/h") || lower.contains("$/km")
-                            || lower.contains("no conviene") || lower.contains("conviene ")
-                            || lower.startsWith("conviene") || lower.contains("dudoso")) {
-                        continue;
-                    }
-                    if (cleaned.length() > 240) cleaned = cleaned.substring(0, 240);
-                    out.add(cleaned);
-                    if (out.size() >= 140) break;
-                }
-                return out;
-            }
-
-            private static double chooseFare(List<String> lines) {
-                List<FareCandidate> candidates = new ArrayList<>();
-                for (int i = 0; i < lines.size(); i++) {
-                    String line = lines.get(i);
-                    String lower = line.toLowerCase(Locale.ROOT);
-                    Matcher m = MONEY.matcher(line);
-                    while (m.find()) {
-                        double value = parseLocaleNumber(m.group(1));
-                        if (value < 100 || value > 2_000_000) continue;
-                        int score = 0;
-                        if (containsAny(lower, OFFER_HINTS)) score += 5;
-                        if (lower.contains("tarifa") || lower.contains("ganás") || lower.contains("ganas")) score += 4;
-                        if (lower.contains("$/") || lower.contains("por km") || lower.contains("por hora")) score -= 8;
-                        if (i < 12) score += 1;
-                        candidates.add(new FareCandidate(value, score, i));
-                    }
-                }
-                if (candidates.isEmpty()) return -1;
-                candidates.sort(Comparator
-                        .comparingInt((FareCandidate c) -> c.score).reversed()
-                        .thenComparingInt(c -> c.lineIndex)
-                        .thenComparingDouble(c -> -c.value));
-                int bestScore = candidates.get(0).score;
-                double best = candidates.get(0).value;
-                if (bestScore <= 1) {
-                    // Sin contexto, la tarifa suele ser el importe monetario más alto visible en la tarjeta.
-                    for (FareCandidate c : candidates) best = Math.max(best, c.value);
-                }
-                return best;
-            }
-
-            private static List<MetricPair> extractPairs(List<String> lines) {
-                List<MetricPair> out = new ArrayList<>();
-                for (int i = 0; i < lines.size(); i++) {
-                    String line = lines.get(i);
-                    // Primero se intenta la línea aislada para no mezclar pickup y viaje contiguos.
-                    MetricPair p = matchPair(line);
-                    if (p == null && i + 1 < lines.size()) {
-                        // OCR puede separar minutos y km de una misma fila en dos líneas.
-                        p = matchPair(line + " " + lines.get(i + 1));
-                    }
-                    if (p != null && !containsSimilar(out, p)) {
-                        out.add(p);
-                        if (out.size() >= 6) break;
-                    }
-                }
-                return out;
-            }
-
-            private static MetricPair matchPair(String text) {
-                Matcher a = MIN_THEN_KM.matcher(text);
-                if (a.find()) {
-                    return new MetricPair(parseLocaleNumber(a.group(1)), parseLocaleNumber(a.group(2)),
-                            text.toLowerCase(Locale.ROOT));
-                }
-                Matcher b = KM_THEN_MIN.matcher(text);
-                if (b.find()) {
-                    return new MetricPair(parseLocaleNumber(b.group(2)), parseLocaleNumber(b.group(1)),
-                            text.toLowerCase(Locale.ROOT));
-                }
-                return null;
-            }
-
-            private static boolean containsSimilar(List<MetricPair> values, MetricPair candidate) {
-                for (MetricPair p : values) {
-                    if (Math.abs(p.minutes - candidate.minutes) < 0.01 && Math.abs(p.km - candidate.km) < 0.01) return true;
-                }
-                return false;
-            }
-
-            private static MetricPair firstDifferent(List<MetricPair> values, MetricPair excluded) {
-                for (MetricPair p : values) if (p != excluded) return p;
-                return null;
-            }
-
-            private static boolean isReasonablePair(MetricPair p) {
-                return p.minutes >= 0 && p.minutes <= 240 && p.km >= 0 && p.km <= 500;
-            }
-
-            private static List<Double> findAll(Pattern pattern, String text, int group) {
-                List<Double> out = new ArrayList<>();
-                Matcher m = pattern.matcher(text);
-                while (m.find() && out.size() < 12) {
-                    double v = parseLocaleNumber(m.group(group));
-                    if (v >= 0) out.add(v);
-                }
-                return out;
-            }
-
-            static double parseLocaleNumber(String raw) {
-                if (raw == null) return -1;
-                String s = raw.trim().replace(" ", "")
-                        .replace('I', '1').replace('i', '1').replace('l', '1')
-                        .replace('|', '1').replace('O', '0').replace('o', '0');
-                try {
-                    int lastComma = s.lastIndexOf(',');
-                    int lastDot = s.lastIndexOf('.');
-                    if (lastComma >= 0 && lastDot >= 0) {
-                        if (lastComma > lastDot) s = s.replace(".", "").replace(',', '.');
-                        else s = s.replace(",", "");
-                    } else if (lastComma >= 0) {
-                        int digitsAfter = s.length() - lastComma - 1;
-                        s = digitsAfter <= 2 ? s.replace(',', '.') : s.replace(",", "");
-                    } else if (lastDot >= 0) {
-                        int digitsAfter = s.length() - lastDot - 1;
-                        if (digitsAfter == 3 && s.length() > 4) s = s.replace(".", "");
-                    }
-                    return Double.parseDouble(s);
-                } catch (Exception ignored) {
-                    return -1;
-                }
-            }
-
-            private static boolean containsAny(String text, String[] needles) {
-                for (String needle : needles) if (text.contains(needle)) return true;
-                return false;
-            }
-
-            private static String join(List<String> values, String separator) {
-                StringBuilder b = new StringBuilder();
-                for (String value : values) {
-                    if (b.length() > 0) b.append(separator);
-                    b.append(value);
-                }
-                return b.toString();
-            }
-
-            private static String excerpt(String text) {
-                String compact = text.replaceAll("\\s+", " ").trim();
-                return compact.length() <= 280 ? compact : compact.substring(0, 280) + "…";
-            }
-
-            private static final class MetricPair {
-                final double minutes;
-                final double km;
-                final String context;
-                MetricPair(double minutes, double km, String context) {
-                    this.minutes = minutes;
-                    this.km = km;
-                    this.context = context;
-                }
-            }
-
-            private static final class FareCandidate {
-                final double value;
-                final int score;
-                final int lineIndex;
-                FareCandidate(double value, int score, int lineIndex) {
-                    this.value = value;
-                    this.score = score;
-                    this.lineIndex = lineIndex;
-                }
-            }
-
-            public static final class Offer {
-                public final double fare;
-                public final double pickupMin;
-                public final double pickupKm;
-                public final double tripMin;
-                public final double tripKm;
-
-                public Offer(double fare, double pickupMin, double pickupKm, double tripMin, double tripKm) {
-                    this.fare = fare;
-                    this.pickupMin = pickupMin;
-                    this.pickupKm = pickupKm;
-                    this.tripMin = tripMin;
-                    this.tripKm = tripKm;
-                }
-
-                public boolean isUsable() {
-                    return fare > 0 && pickupMin >= 0 && pickupKm >= 0 && tripMin > 0 && tripKm > 0;
-                }
-            }
-
-            public static final class ParseResult {
-                public final Offer offer;
-                public final String diagnostic;
-                public final boolean candidate;
-                public final String excerpt;
-
-                private ParseResult(Offer offer, String diagnostic, boolean candidate, String excerpt) {
-                    this.offer = offer;
-                    this.diagnostic = diagnostic;
-                    this.candidate = candidate;
-                    this.excerpt = excerpt;
-                }
-
-                static ParseResult success(Offer offer, String excerpt) {
-                    return new ParseResult(offer, "oferta completa", true, excerpt);
-                }
-
-                static ParseResult failure(String diagnostic, boolean candidate, String excerpt) {
-                    return new ParseResult(null, diagnostic, candidate, excerpt);
-                }
-            }
-    }
 
 }

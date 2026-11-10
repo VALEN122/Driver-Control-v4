@@ -52,17 +52,29 @@ public final class DriverCopilotCoordinator {
     private boolean inFlight;
     private long lastCaptureAt;
     private int lastPayloadHash;
+    private long lastPayloadAt;
+    private volatile boolean closed;
 
     public DriverCopilotCoordinator() {
-        workerThread.start();
-        worker = new Handler(workerThread.getLooper());
-        workerExecutor = command -> worker.post(command);
-        recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS);
+        TextRecognizer createdRecognizer =
+                TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS);
+        try {
+            workerThread.start();
+            worker = new Handler(workerThread.getLooper());
+            workerExecutor = command -> worker.post(command);
+            recognizer = createdRecognizer;
+        } catch (Throwable error) {
+            try { createdRecognizer.close(); } catch (Throwable ignored) {}
+            if (error instanceof RuntimeException) throw (RuntimeException) error;
+            if (error instanceof Error) throw (Error) error;
+            throw new IllegalStateException("No se pudo iniciar el lector", error);
+        }
     }
 
     public synchronized boolean tryBeginCapture() {
         long now = SystemClock.elapsedRealtime();
-        if (inFlight || now - lastCaptureAt < MIN_CAPTURE_INTERVAL_MS) return false;
+        if (closed || inFlight || (lastCaptureAt > 0L
+                && now - lastCaptureAt < MIN_CAPTURE_INTERVAL_MS)) return false;
         inFlight = true;
         lastCaptureAt = now;
         return true;
@@ -73,11 +85,15 @@ public final class DriverCopilotCoordinator {
     }
 
     public void process(AccessibilityService.ScreenshotResult result, boolean includeJpeg, Callback callback) {
-        worker.post(() -> processOnWorker(result, includeJpeg, callback));
+        if (closed || !worker.post(() -> processOnWorker(result, includeJpeg, callback))) {
+            if (result != null) close(result.getHardwareBuffer());
+            failCapture();
+        }
     }
 
     public synchronized void failCapture() {
         inFlight = false;
+        if (closed) workerThread.quitSafely();
     }
 
     private void processOnWorker(
@@ -127,37 +143,47 @@ public final class DriverCopilotCoordinator {
 
         final Bitmap input = scaled;
         final Bitmap original = software;
-        final byte[] jpeg;
-        if (includeJpeg) {
-            ByteArrayOutputStream encoded = new ByteArrayOutputStream();
-            input.compress(Bitmap.CompressFormat.JPEG, 62, encoded);
-            jpeg = encoded.toByteArray();
-        } else {
-            jpeg = null;
+        try {
+            final byte[] jpeg;
+            if (includeJpeg) {
+                ByteArrayOutputStream encoded = new ByteArrayOutputStream();
+                input.compress(Bitmap.CompressFormat.JPEG, 62, encoded);
+                jpeg = encoded.toByteArray();
+            } else {
+                jpeg = null;
+            }
+            recognizer.process(InputImage.fromBitmap(input, 0))
+                    .addOnSuccessListener(workerExecutor, resultText -> {
+                        if (closed) return;
+                        String text = resultText == null ? "" : resultText.getText().trim();
+                        if (text.isEmpty()) {
+                            callback.onError("OCR · pantalla sin texto útil");
+                            return;
+                        }
+                        int hash = text.hashCode();
+                        synchronized (this) {
+                            long now = SystemClock.elapsedRealtime();
+                            if (hash == lastPayloadHash && now - lastPayloadAt < 4000L) return;
+                            lastPayloadHash = hash;
+                            lastPayloadAt = now;
+                        }
+                        VisionDecision decision = classify(text);
+                        callback.onResult(
+                                decision.type, text, decision.cashFare, decision.confidence, jpeg);
+                    })
+                    .addOnFailureListener(workerExecutor,
+                            error -> callback.onError("OCR · no pudo reconocer este cuadro"))
+                    .addOnCompleteListener(workerExecutor, task -> {
+                        recycle(input);
+                        if (original != input) recycle(original);
+                        failCapture();
+                    });
+        } catch (Throwable error) {
+            recycle(input);
+            if (original != input) recycle(original);
+            failCapture();
+            if (!closed) callback.onError("OCR · no se pudo procesar la captura");
         }
-        recognizer.process(InputImage.fromBitmap(input, 0))
-                .addOnSuccessListener(workerExecutor, resultText -> {
-                    String text = resultText == null ? "" : resultText.getText().trim();
-                    if (text.isEmpty()) {
-                        callback.onError("OCR · pantalla sin texto útil");
-                        return;
-                    }
-                    int hash = text.hashCode();
-                    synchronized (this) {
-                        if (hash == lastPayloadHash) return;
-                        lastPayloadHash = hash;
-                    }
-                    VisionDecision decision = classify(text);
-                    callback.onResult(
-                            decision.type, text, decision.cashFare, decision.confidence, jpeg);
-                })
-                .addOnFailureListener(workerExecutor,
-                        error -> callback.onError("OCR · no pudo reconocer este cuadro"))
-                .addOnCompleteListener(workerExecutor, task -> {
-                    recycle(input);
-                    if (original != input) recycle(original);
-                    failCapture();
-                });
     }
 
     private VisionDecision classify(String text) {
@@ -222,9 +248,10 @@ public final class DriverCopilotCoordinator {
         }
     }
 
-    public void close() {
+    public synchronized void close() {
+        closed = true;
         try { recognizer.close(); } catch (Throwable ignored) {}
-        workerThread.quitSafely();
+        if (!inFlight) workerThread.quitSafely();
     }
 
     private static void recycle(Bitmap bitmap) {

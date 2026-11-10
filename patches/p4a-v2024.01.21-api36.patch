@@ -1,0 +1,80 @@
+diff --git a/pythonforandroid/bootstraps/common/build/gradle/wrapper/gradle-wrapper.properties b/pythonforandroid/bootstraps/common/build/gradle/wrapper/gradle-wrapper.properties
+index 8f174bc..0da2160 100644
+--- a/pythonforandroid/bootstraps/common/build/gradle/wrapper/gradle-wrapper.properties
++++ b/pythonforandroid/bootstraps/common/build/gradle/wrapper/gradle-wrapper.properties
+@@ -3,4 +3,4 @@ distributionBase=GRADLE_USER_HOME
+ distributionPath=wrapper/dists
+ zipStoreBase=GRADLE_USER_HOME
+ zipStorePath=wrapper/dists
+-distributionUrl=https\://services.gradle.org/distributions/gradle-8.0.2-all.zip
++distributionUrl=https\://services.gradle.org/distributions/gradle-8.11.1-all.zip
+diff --git a/pythonforandroid/bootstraps/common/build/templates/build.tmpl.gradle b/pythonforandroid/bootstraps/common/build/templates/build.tmpl.gradle
+index 750a435..792d42c 100644
+--- a/pythonforandroid/bootstraps/common/build/templates/build.tmpl.gradle
++++ b/pythonforandroid/bootstraps/common/build/templates/build.tmpl.gradle
+@@ -2,17 +2,17 @@
+ buildscript {
+     repositories {
+        google()
+-       jcenter()
++       mavenCentral()
+     }
+     dependencies {
+-        classpath 'com.android.tools.build:gradle:8.1.1'
++        classpath 'com.android.tools.build:gradle:8.9.1'
+     }
+ }
+ 
+ allprojects {
+     repositories {
+         google()
+-        jcenter()
++        mavenCentral()
+         {%- for repo in args.gradle_repositories %}
+         {{repo}}
+         {%- endfor %}
+diff --git a/pythonforandroid/archs.py b/pythonforandroid/archs.py
+index b065174..87ef4b1 100644
+--- a/pythonforandroid/archs.py
++++ b/pythonforandroid/archs.py
+@@ -29,13 +29,19 @@ class Arch:
+         '-I{python_includes}',
+     ]
+ 
+-    common_ldflags = ['-L{ctx_libs_dir}']
++    common_ldflags = [
++        '-L{ctx_libs_dir}',
++        '-Wl,-z,max-page-size=16384',
++        '-Wl,-z,common-page-size=16384',
++    ]
+ 
+     common_ldlibs = ['-lm']
+ 
+     common_ldshared = [
+         '-pthread',
+         '-shared',
++        '-Wl,-z,max-page-size=16384',
++        '-Wl,-z,common-page-size=16384',
+         '-Wl,-O1',
+         '-Wl,-Bsymbolic-functions',
+     ]
+diff --git a/pythonforandroid/bootstraps/sdl2/build/jni/Application.mk b/pythonforandroid/bootstraps/sdl2/build/jni/Application.mk
+index 1559853..66f06ab 100644
+--- a/pythonforandroid/bootstraps/sdl2/build/jni/Application.mk
++++ b/pythonforandroid/bootstraps/sdl2/build/jni/Application.mk
+@@ -6,3 +6,4 @@
+ # APP_ABI := armeabi armeabi-v7a x86
+ APP_ABI := $(ARCH)
+ APP_PLATFORM := $(NDK_API)
++APP_LDFLAGS += -Wl,-z,max-page-size=16384 -Wl,-z,common-page-size=16384
+diff --git a/pythonforandroid/recipes/sqlite3/Android.mk b/pythonforandroid/recipes/sqlite3/Android.mk
+index 57bc815..023727c 100644
+--- a/pythonforandroid/recipes/sqlite3/Android.mk
++++ b/pythonforandroid/recipes/sqlite3/Android.mk
+@@ -8,4 +8,6 @@ LOCAL_MODULE := sqlite3
+ 
+ LOCAL_CFLAGS := -DSQLITE_ENABLE_FTS4 -D_FILE_OFFSET_BITS=32 -DSQLITE_ENABLE_JSON1
+ 
++LOCAL_LDFLAGS += -Wl,-z,max-page-size=16384 -Wl,-z,common-page-size=16384
++
+ include $(BUILD_SHARED_LIBRARY)

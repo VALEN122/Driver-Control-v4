@@ -82,7 +82,7 @@ def rank_financial_insights(
                 "complete_data",
                 "Tu cierre quedó guardado",
                 "Hay datos pendientes, pero no perdiste la jornada.",
-                "Completá lo que falta cuando tengas el detalle de Uber.",
+                "Contrastá este cierre con el detalle de Uber antes de usarlo como referencia.",
                 "Los datos completos vuelven más precisa la ganancia.",
                 {
                     "financial_impact": 0.55,

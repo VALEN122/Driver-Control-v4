@@ -123,7 +123,8 @@ class FinanceModelTest(unittest.TestCase):
         self.assertEqual("Copia creada", messages[-1][0])
 
     def test_money_model_and_cash_reconciliation_are_separate(self):
-        now = datetime.now()
+        # Keep this four-hour fixture on one accounting day in every CI timezone.
+        now = datetime(2026, 1, 15, 12, 0, 0)
         opened = (now - timedelta(hours=1)).strftime(self.main.DATETIME_FORMAT)
         date_text = now.strftime(self.main.DATE_FORMAT)
         with self.app.transaction():
@@ -180,10 +181,84 @@ class FinanceModelTest(unittest.TestCase):
         self.assertEqual(period["km"], 50)
         self.assertEqual(period["fuel_cost"], 8000)
         self.assertEqual(period["profit"], 1000)
+        self.assertEqual(period["fuel_purchases"], 5000)
+        self.assertEqual(period["recorded_payment_balance"], 4000)
 
         session = self.app._session_metrics(session_id)
         self.assertEqual(session["cash_expected"], 5000)
         self.assertEqual(session["net"], 1000)
+        self.assertEqual(session["fuel_purchase_amount"], 5000)
+
+    def test_nafta_entered_as_expense_is_not_deducted_twice(self):
+        now = datetime(2026, 1, 15, 12, 0, 0)
+        date_text = now.strftime(self.main.DATE_FORMAT)
+        with self.app.transaction():
+            cursor = self.app.conn.execute(
+                """
+                INSERT INTO work_sessions(
+                    opened_at,closed_at,opening_odometer,current_odometer,
+                    closing_odometer,opening_cash,status
+                ) VALUES(?,?,?,?,?,?,'CLOSED')
+                """,
+                (
+                    (now - timedelta(hours=4, minutes=42)).strftime(
+                        self.main.DATETIME_FORMAT
+                    ),
+                    now.strftime(self.main.DATETIME_FORMAT),
+                    10000,
+                    10083,
+                    10083,
+                    0,
+                ),
+            )
+            session_id = int(cursor.lastrowid)
+            self.app.conn.execute(
+                """
+                INSERT INTO session_summaries(
+                    session_id,income_total,trip_count,cash_collected,
+                    mp_collected,app_collected,uber_fee,uber_owes,
+                    driver_owes,confidence,source_mode,updated_at
+                ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    session_id, 40944, 1, None, None, None, 0, 0, 0,
+                    "PARTIAL", "QUICK", now.strftime(self.main.DATETIME_FORMAT),
+                ),
+            )
+            self.app.conn.execute(
+                """
+                INSERT INTO expenses(
+                    created_at,category,description,amount,payment,session_id
+                ) VALUES(?,?,?,?,?,?)
+                """,
+                (
+                    now.strftime(self.main.DATETIME_FORMAT),
+                    "Nafta",
+                    "Carga del tanque",
+                    20000,
+                    self.main.PAYMENT_MP,
+                    session_id,
+                ),
+            )
+            self.app.conn.execute(
+                "INSERT OR REPLACE INTO settings(key,value) VALUES('fuel_consumption','10')"
+            )
+            self.app.conn.execute(
+                "INSERT OR REPLACE INTO settings(key,value) VALUES('fuel_price','1961.2048192771085')"
+            )
+
+        period = self.app._range_metrics([date_text])
+        self.assertEqual(period["income"], 40944)
+        self.assertEqual(period["expenses"], 0)
+        self.assertEqual(period["fuel_purchases"], 20000)
+        self.assertAlmostEqual(period["fuel_cost"], 16278, places=2)
+        self.assertAlmostEqual(period["profit"], 24666, places=2)
+        self.assertEqual(period["recorded_payment_balance"], 20944)
+
+        session = self.app._session_metrics(session_id)
+        self.assertEqual(session["operating_expenses"], 0)
+        self.assertEqual(session["fuel_purchase_amount"], 20000)
+        self.assertAlmostEqual(session["net"], 24666, places=2)
 
     def test_schema_contains_new_financial_and_vehicle_fields(self):
         trip_columns = {

@@ -1,4 +1,32 @@
-# Driver Control 6.0.0 — Cierre inteligente
+# Driver Control 6.3.0
+
+Actualización de lectura, rentabilidad y objetivos de jornada. Ver [cambios 6.3.0](CHANGELOG_6.3.0.md).
+
+En **Ajustes**, configurá la reserva de mantenimiento y desgaste por kilómetro. El valor inicial es 0 (sin reserva); no es una estimación del costo real del vehículo. El asistente muestra combustible y reserva por separado y usa ambos al evaluar $/hora y $/km. Los ingresos de la meta son los registrados para el conductor, no ofertas vistas ni una facturación bruta inferida.
+
+El flujo `.github/workflows/android.yml` compila el código de la rama, sin aplicar parches de versiones antiguas. Conserva la firma existente y verifica el APK. Los flujos históricos se conservan en `archive/workflows`.
+
+## Funciones anteriores
+
+
+Aplicación Android de control de jornadas, ingresos, combustible, caja, mantenimiento y análisis de ofertas.
+
+Los cambios de esta entrega están en [CHANGELOG_6.2.0.md](CHANGELOG_6.2.0.md).
+La compilación activa es **Driver Control Android** (`.github/workflows/android.yml`).
+Produce `driver-control-6.2.0-beta.apk`; comprueba el paquete, la versión y la firma.
+Requiere el secreto existente `DRIVER_CONTROL_DEBUG_KEYSTORE_B64` para poder actualizar
+una instalación firmada con esa misma clave. No se debe desinstalar la app para sortear
+un error de firma: primero exportar una copia de seguridad y recuperar la clave correcta.
+
+Pruebas locales: `python3 -m unittest discover -s tests -v` (requiere `xlsxwriter==3.2.9`).
+El análisis manual y las finanzas funcionan sin servidor. Gemini requiere URL HTTPS,
+token y un servidor con una API configurada; no se incluyen claves en el APK.
+
+Android 16 exige adaptar los márgenes de las barras del sistema; el puente nativo
+`DriverWindowInsets` aplica esa adaptación siguiendo los
+[cambios documentados de Android 16](https://developer.android.com/about/versions/16/behavior-changes-16).
+
+## Funciones existentes
 
 Base estable 4.3.3 + Asistente de viajes.
 

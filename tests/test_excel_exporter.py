@@ -147,7 +147,7 @@ class ExcelExporterTest(unittest.TestCase):
         )
         connection.execute(
             "INSERT INTO expenses VALUES(1,?,?,?,?,?,?)",
-            ("09/09/2026 21:53", "Combustible", "Carga 13.70 L", 30000, 1, "Efectivo"),
+            ("09/09/2026 21:53", "Nafta", "Carga 13.70 L", 30000, 1, "Efectivo"),
         )
         connection.execute(
             "INSERT INTO fuel VALUES(1,?,?,?,?,?,?)",
@@ -218,6 +218,8 @@ class ExcelExporterTest(unittest.TestCase):
             })
             self.assertEqual(summaries[0]["amount"], 33600)
             self.assertEqual(summaries[0]["trips"], 12)
+            self.assertEqual(summaries[0]["operating"], 0)
+            self.assertEqual(summaries[0]["fuel_purchases"], 30000)
             self.assertEqual(summaries[0]["confidence"], "CONFIRMED")
 
             with zipfile.ZipFile(output) as archive:

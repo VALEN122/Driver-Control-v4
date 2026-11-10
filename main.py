@@ -1,4 +1,5 @@
 import logging
+import math
 import sqlite3
 import threading
 from contextlib import contextmanager
@@ -23,11 +24,14 @@ from kivymd.uix.dialog import MDDialog
 from kivymd.uix.list import TwoLineListItem
 from kivymd.uix.textfield import MDTextField
 
+from finance_core import (is_fuel_purchase, register_sqlite_finance_functions,
+                          calculate_session_metrics, freeze_session_metrics,
+                          hourly_estimate)
 from insight_engine import rank_financial_insights
 
 
 # ============================================================
-# Driver Control v6.1.2
+# Driver Control v6.3.0
 # Mejoras aplicadas:
 # - Valor actual de nafta dinámico y persistente con respaldo histórico.
 # - Exportación completa de datos operativos a un libro Excel.
@@ -36,9 +40,9 @@ from insight_engine import rank_financial_insights
 # ============================================================
 
 APP_NAME = "Driver Control"
-APP_VERSION = "6.1.2"
+APP_VERSION = "6.3.0"
 DB_FILE = "driver_control.db"
-DB_SCHEMA_VERSION = 2
+DB_SCHEMA_VERSION = 3
 DATE_FORMAT = "%d/%m/%Y"
 DATETIME_FORMAT = "%d/%m/%Y %H:%M"
 WEEKDAYS_ES = (
@@ -227,10 +231,10 @@ ScreenManager:
                     radius: [26,26,26,26]
                     md_bg_color: app.primary_color
                     size_hint_y: None
-                    height: dp(244)
+                    height: dp(304)
 
                     MDLabel:
-                        text: "DINERO REAL QUE TE QUEDÓ · " + root.period_label.upper()
+                        text: "GANANCIA NETA ESTIMADA · " + root.period_label.upper()
                         theme_text_color: "Custom"
                         text_color: app.primary_muted_text_color
                         font_style: "Caption"
@@ -255,6 +259,15 @@ ScreenManager:
                         text_size: self.width, None
                         height: self.texture_size[1] + dp(8)
 
+                    MDLabel:
+                        text: root.fuel_purchase_text
+                        theme_text_color: "Custom"
+                        text_color: app.primary_muted_text_color
+                        font_style: "Caption"
+                        size_hint_y: None
+                        text_size: self.width, None
+                        height: self.texture_size[1] + dp(4)
+
                     MDBoxLayout:
                         size_hint_y: None
                         height: dp(42)
@@ -278,7 +291,7 @@ ScreenManager:
                     radius: [22,22,22,22]
                     md_bg_color: app.card_color
                     size_hint_y: None
-                    height: dp(214)
+                    height: self.minimum_height
 
                     MDBoxLayout:
                         size_hint_y: None
@@ -338,17 +351,17 @@ ScreenManager:
                         text_color: app.primary_text_color
                         on_release: app.open_trip_dialog()
                     MDRaisedButton:
-                        text: "+ CARGAR GASTO"
+                        text: "+ CARGAR NAFTA"
                         md_bg_color: app.primary_color
                         theme_text_color: "Custom"
                         text_color: app.primary_text_color
+                        on_release: app.open_fuel_dialog()
+                    MDFlatButton:
+                        text: "+ CARGAR GASTO"
                         on_release: app.open_expense_dialog()
                     MDFlatButton:
                         text: "VUELTO RÁPIDO"
                         on_release: app.go("cash")
-                    MDFlatButton:
-                        text: "VER HISTORIAL"
-                        on_release: app.go("trips")
 
                 MDCard:
                     orientation: "vertical"
@@ -1354,7 +1367,7 @@ ScreenManager:
                     radius: [22,22,22,22]
                     md_bg_color: app.primary_color
                     size_hint_y: None
-                    height: dp(206)
+                    height: self.minimum_height
 
                     MDLabel:
                         text: root.confidence_text
@@ -1374,7 +1387,7 @@ ScreenManager:
                         height: dp(64)
 
                     MDLabel:
-                        text: "Esto quedó realmente para vos"
+                        text: "Resultado estimado de tu jornada"
                         theme_text_color: "Custom"
                         text_color: app.primary_text_color
                         bold: True
@@ -1417,6 +1430,20 @@ ScreenManager:
                             text: root.per_km_text
                             font_style: "H6"
                             bold: True
+
+                MDCard:
+                    orientation: "vertical"
+                    padding: dp(16)
+                    radius: [18,18,18,18]
+                    md_bg_color: app.card_color
+                    size_hint_y: None
+                    height: self.minimum_height
+
+                    MDLabel:
+                        text: root.audit_text
+                        text_size: self.width, None
+                        size_hint_y: None
+                        height: self.texture_size[1] + dp(12)
 
                 MDCard:
                     orientation: "vertical"
@@ -2034,7 +2061,7 @@ ScreenManager:
 
                 MDTextField:
                     id: daily_goal
-                    hint_text: "Meta diaria ($)"
+                    hint_text: "Meta diaria / por jornada ($ de ingresos)"
                     input_filter: "float"
 
                 MDTextField:
@@ -2056,6 +2083,13 @@ ScreenManager:
                     hint_text: "Precio actual de nafta ($/L)"
                     helper_text: "Actualizado automáticamente en cálculos"
                     helper_text_mode: "on_focus"
+                    input_filter: "float"
+
+                MDTextField:
+                    id: maintenance_per_km
+                    hint_text: "Reserva mantenimiento y desgaste ($/km)"
+                    helper_text: "0 = sin reserva. Se descuenta al evaluar ofertas."
+                    helper_text_mode: "persistent"
                     input_filter: "float"
 
                 MDTextField:
@@ -2268,6 +2302,10 @@ class DashboardScreen(Screen):
     expenses_text = StringProperty("$0")
     net_text = StringProperty("$0")
     net_explanation_text = StringProperty("Ingresos menos combustible y otros gastos")
+    fuel_purchase_text = StringProperty(
+        "Cargas pagadas: $0 · no reducen de nuevo la ganancia\n"
+        "Ingresos − pagos registrados: $0"
+    )
     efficiency_text = StringProperty("$0 por hora · $0 por km")
     km_text = StringProperty("0 km")
     trips_text = StringProperty("0")
@@ -2354,6 +2392,7 @@ class DayStoryScreen(Screen):
     equation_text = StringProperty("$0 ingresos − $0 nafta − $0 gastos")
     hourly_text = StringProperty("$0/h")
     per_km_text = StringProperty("$0/km")
+    audit_text = StringProperty("")
     insight_title = StringProperty("Ya sabés qué te quedó")
     insight_text = StringProperty("Tu jornada quedó guardada.")
     next_action_text = StringProperty("Usá este resultado como referencia mañana.")
@@ -2434,12 +2473,18 @@ class DriverControlApp(MDApp):
         self.conn.execute("PRAGMA journal_mode = WAL")
         self.conn.execute("PRAGMA synchronous = NORMAL")
 
+        schema = int(self.conn.execute("PRAGMA user_version").fetchone()[0])
+        if 0 < schema < DB_SCHEMA_VERSION:
+            backup_path = Path(self.user_data_dir) / f"driver_control_pre_v{DB_SCHEMA_VERSION}_{datetime.now():%Y%m%d_%H%M%S}.db"
+            with sqlite3.connect(str(backup_path)) as backup:
+                self.conn.backup(backup)
         self._create_or_migrate_db()
         self._apply_theme(self.setting("dark_mode", "0") == "1")
         return Builder.load_string(KV)
 
     def on_start(self):
         try:
+            self._install_android_insets()
             self._clock_event = Clock.schedule_interval(self._tick_clock, 1)
             self._wellness_event = Clock.schedule_interval(
                 lambda _dt: self.refresh_wellness(), 60
@@ -2451,6 +2496,13 @@ class DriverControlApp(MDApp):
         except Exception:
             LOGGER.exception("Fatal error during application startup.")
             raise
+
+    def _install_android_insets(self):
+        if platform != "android":
+            return
+        from jnius import autoclass
+        activity = autoclass("org.kivy.android.PythonActivity").mActivity
+        autoclass("org.drivercontrol.drivercontrol.DriverWindowInsets").install(activity)
 
     def on_stop(self):
         event = getattr(self, "_clock_event", None)
@@ -2483,6 +2535,7 @@ class DriverControlApp(MDApp):
             raise
 
     def _create_or_migrate_db(self):
+        register_sqlite_finance_functions(self.conn)
         current_version = int(self.conn.execute("PRAGMA user_version").fetchone()[0])
         if current_version > DB_SCHEMA_VERSION:
             raise RuntimeError(
@@ -2721,6 +2774,21 @@ class DriverControlApp(MDApp):
             self.conn.execute(
                 "INSERT OR IGNORE INTO settings(key,value) VALUES('dark_mode','0')"
             )
+            self.conn.execute(
+                "CREATE TABLE IF NOT EXISTS session_financial_snapshots("
+                "session_id INTEGER PRIMARY KEY REFERENCES work_sessions(id), "
+                "metrics_json TEXT NOT NULL, basis TEXT NOT NULL, created_at TEXT NOT NULL)"
+            )
+            if current_version < 3:
+                # Older releases did not save historic fuel rates. Preserve their
+                # current estimate once, explicitly marked as reconstructed.
+                for closed in self.conn.execute(
+                    "SELECT id FROM work_sessions WHERE status='CLOSED' "
+                    "AND id NOT IN (SELECT session_id FROM session_financial_snapshots)"
+                ).fetchall():
+                    freeze_session_metrics(self.conn, closed["id"],
+                                           self._session_metrics(closed["id"]),
+                                           "LEGACY_RECONSTRUCTED")
             self.conn.execute(f"PRAGMA user_version={DB_SCHEMA_VERSION}")
             self.conn.execute(
                 "INSERT OR IGNORE INTO settings(key,value) VALUES('ai_server_url',?)",
@@ -2919,7 +2987,7 @@ class DriverControlApp(MDApp):
         raw = self.setting(key, str(default))
         try:
             value = float(raw)
-            if value <= 0:
+            if not math.isfinite(value) or value < 0 or (value == 0 and default != 0):
                 raise ValueError
             return value
         except (TypeError, ValueError):
@@ -3015,6 +3083,8 @@ class DriverControlApp(MDApp):
         except (TypeError, ValueError):
             raise ValidationError(f"{field_name}: ingresá un número válido.")
 
+        if not math.isfinite(value):
+            raise ValidationError(f"{field_name}: ingresá un número finito.")
         if value < 0 or (not allow_zero and value == 0):
             comparator = "mayor que 0" if not allow_zero else "0 o más"
             raise ValidationError(f"{field_name}: el valor debe ser {comparator}.")
@@ -3226,14 +3296,15 @@ class DriverControlApp(MDApp):
 
     def _refresh_smart_close_costs(self, session_id: int):
         screen = self.root.get_screen("smart_close")
-        expenses = self.conn.execute(
+        expense = self.conn.execute(
             """
-            SELECT COALESCE(SUM(amount),0) value
+            SELECT COALESCE(SUM(CASE WHEN is_fuel_purchase(category,description)=0 THEN amount ELSE 0 END),0) operating,
+                   COALESCE(SUM(CASE WHEN is_fuel_purchase(category,description)=1 THEN amount ELSE 0 END),0) fuel_purchases
             FROM expenses
-            WHERE session_id=? AND lower(category)!='combustible'
+            WHERE session_id=?
             """,
             (session_id,),
-        ).fetchone()["value"]
+        ).fetchone()
         fuel = self.conn.execute(
             """
             SELECT COALESCE(SUM(liters),0) liters, COALESCE(SUM(amount),0) amount
@@ -3242,9 +3313,9 @@ class DriverControlApp(MDApp):
             (session_id,),
         ).fetchone()
         screen.registered_costs_text = (
-            f"Ya cargado: {self.money(float(expenses or 0))} en otros gastos · "
-            f"{float(fuel['liters'] or 0):.2f} L de nafta "
-            f"({self.money(float(fuel['amount'] or 0))})."
+            f"Ya cargado: {self.money(float(expense['operating'] or 0))} en otros gastos · "
+            f"{self.money(float(expense['fuel_purchases'] or 0))} en cargas de nafta · "
+            f"{float(fuel['liters'] or 0):.2f} L informados."
         )
 
     def toggle_smart_close_details(self):
@@ -3370,6 +3441,7 @@ class DriverControlApp(MDApp):
                     ),
                 )
                 metrics = self._session_metrics(session_id, closing_odometer)
+                metrics["uber_fee_known"] = uber_fee is not None
                 difference = None
                 if closing_cash is not None and metrics["cash_reconciliation_known"]:
                     difference = closing_cash - metrics["cash_expected"]
@@ -3399,6 +3471,7 @@ class DriverControlApp(MDApp):
                         session_id,
                     ),
                 )
+                freeze_session_metrics(self.conn, session_id, metrics)
 
             self.refresh_all()
             self._prepare_day_story(session_id)
@@ -3447,15 +3520,12 @@ class DriverControlApp(MDApp):
         metrics = self._session_metrics(session_id)
         summary = self._session_summary(session_id)
         session = self.conn.execute(
-            "SELECT cash_difference FROM work_sessions WHERE id=?",
+            "SELECT cash_difference,closing_cash FROM work_sessions WHERE id=?",
             (session_id,),
         ).fetchone()
         confidence = summary["confidence"] if summary else "PARTIAL"
         worked_minutes = self._session_worked_minutes(session_id)
-        hourly = (
-            metrics["net"] * 60.0 / worked_minutes
-            if worked_minutes > 0 else 0.0
-        )
+        hourly = hourly_estimate(metrics["net"], worked_minutes)
         per_km = (
             metrics["net"] / metrics["worked_km"]
             if metrics["worked_km"] > 0 else 0.0
@@ -3482,7 +3552,7 @@ class DriverControlApp(MDApp):
         story.confidence_text = (
             "DATOS CONFIRMADOS · NAFTA ESTIMADA"
             if confidence == "CONFIRMED"
-            else "CIERRE PARCIAL · PODÉS COMPLETARLO"
+            else "CIERRE PARCIAL · DATOS SIN CONFIRMAR"
         )
         story.net_text = self.money(metrics["net"])
         story.equation_text = (
@@ -3490,8 +3560,47 @@ class DriverControlApp(MDApp):
             f"{self.money(metrics['fuel_cost'])} nafta − "
             f"{self.money(metrics['operating_expenses'])} gastos"
         )
-        story.hourly_text = f"{self.money(hourly)}/h"
+        story.hourly_text = f"{self.money(hourly)}/h" if hourly is not None else "Pocos minutos"
         story.per_km_text = f"{self.money(per_km)}/km"
+        audit = [
+            f"Duración registrada: {self._duration_text(worked_minutes * 60)}",
+            ("El valor por hora se muestra desde 10 minutos." if hourly is None else ""),
+            f"Nafta usada para calcular: {self.money(metrics['fuel_price'])}/L · "
+            f"{metrics['fuel_consumption']:.1f} L/100 km",
+            f"Consumo estimado: {metrics['fuel_liters']:.2f} L",
+        ]
+        if metrics["fuel_loaded_liters"] > 0:
+            audit.append(
+                "Precio promedio de las cargas informadas: "
+                f"{self.money(metrics['fuel_loaded_amount'] / metrics['fuel_loaded_liters'])}/L"
+            )
+        audit.append("")
+        if metrics["cash_reconciliation_known"]:
+            if all(key in metrics for key in ("opening_cash", "cash_collected", "cash_paid")):
+                audit.extend([
+                    f"Efectivo inicial: {self.money(metrics['opening_cash'])}",
+                    f"Cobros en efectivo: +{self.money(metrics['cash_collected'])}",
+                    f"Pagos en efectivo (incluye cargas): −{self.money(metrics['cash_paid'])}",
+                ])
+            audit.append(f"Efectivo esperado: {self.money(metrics['cash_expected'])}")
+        else:
+            audit.append("Efectivo esperado: sin confirmar; falta el efectivo cobrado.")
+        if session and session["closing_cash"] is not None:
+            audit.append(f"Efectivo contado: {self.money(session['closing_cash'])}")
+        if session and session["cash_difference"] is not None:
+            difference = float(session["cash_difference"])
+            audit.append(
+                "Caja coincidente" if abs(difference) < 0.01 else
+                f"{'Sobrante' if difference > 0 else 'Faltante'}: {self.money(abs(difference))}"
+            )
+        else:
+            audit.append("Conciliación de caja pendiente.")
+        audit.append(
+            f"Comisión informada: {self.money(metrics['uber_fee'])}" if
+            metrics.get("uber_fee_known", metrics["uber_fee"] > 0) else
+            "Comisión: sin informar."
+        )
+        story.audit_text = "\n".join(audit)
         story.insight_title = insight.title
         story.insight_text = insight.message
         story.next_action_text = insight.action
@@ -3544,95 +3653,12 @@ class DriverControlApp(MDApp):
             self.show_message("Error", "No se pudo actualizar el odómetro.")
 
     def _session_metrics(self, session_id: int, closing_odometer=None):
-        session = self.conn.execute(
-            "SELECT * FROM work_sessions WHERE id=?", (session_id,)
-        ).fetchone()
-        if session is None:
-            raise ValidationError("No se encontró la jornada.")
-
-        trip = self.conn.execute(
-            """
-            SELECT COALESCE(SUM(amount),0) revenue,
-                   COALESCE(SUM(uber_fee),0) uber_fee,
-                   COALESCE(SUM(km),0) trip_km,
-                   COUNT(*) trips,
-                   COALESCE(SUM(CASE WHEN payment=? THEN amount ELSE 0 END),0) cash_sales
-            FROM trips WHERE session_id=?
-            """,
-            (PAYMENT_CASH, session_id),
-        ).fetchone()
-        exp = self.conn.execute(
-            """
-            SELECT COALESCE(SUM(CASE WHEN lower(category)!='combustible' THEN amount ELSE 0 END),0) operating,
-                   COALESCE(SUM(CASE WHEN payment=? THEN amount ELSE 0 END),0) cash_paid
-            FROM expenses WHERE session_id=?
-            """,
-            (PAYMENT_CASH, session_id),
-        ).fetchone()
-        loaded = self.conn.execute(
-            "SELECT COALESCE(SUM(amount),0) amount, COALESCE(SUM(liters),0) liters FROM fuel WHERE session_id=?",
-            (session_id,),
-        ).fetchone()
-        summary = self._session_summary(session_id)
-
-        end_odo = closing_odometer
-        if end_odo is None:
-            end_odo = session["closing_odometer"]
-        if end_odo is None:
-            end_odo = session["current_odometer"]
-        if end_odo is not None:
-            worked_km = max(float(end_odo) - float(session["opening_odometer"]), 0.0)
-        else:
-            worked_km = float(trip["trip_km"] or 0.0)
-
-        consumption = self._setting_float("fuel_consumption", DEFAULT_FUEL_CONSUMPTION)
-        fuel_price = self._setting_float("fuel_price", DEFAULT_FUEL_PRICE)
-        fuel_liters = worked_km * consumption / 100.0
-        fuel_cost = fuel_liters * fuel_price
-        operating_expenses = float(exp["operating"] or 0.0)
-        revenue = float(
-            summary["income_total"] if summary is not None else trip["revenue"] or 0.0
+        return calculate_session_metrics(
+            self.conn, session_id,
+            self._setting_float("fuel_consumption", DEFAULT_FUEL_CONSUMPTION),
+            self._setting_float("fuel_price", DEFAULT_FUEL_PRICE),
+            closing_odometer,
         )
-        uber_fee = float(
-            summary["uber_fee"] if summary is not None else trip["uber_fee"] or 0.0
-        )
-        trips = int(
-            summary["trip_count"] if summary is not None else trip["trips"] or 0
-        )
-        net = revenue - operating_expenses - fuel_cost
-        summary_cash = summary["cash_collected"] if summary is not None else None
-        cash_sales = (
-            float(summary_cash)
-            if summary_cash is not None
-            else float(trip["cash_sales"] or 0.0)
-        )
-        cash_reconciliation_known = (
-            summary is None
-            or summary_cash is not None
-            or int(trip["trips"] or 0) > 0
-        )
-        cash_expected = (
-            float(session["opening_cash"] or 0.0)
-            + cash_sales
-            - float(exp["cash_paid"] or 0.0)
-        )
-        return {
-            "revenue": revenue,
-            "uber_fee": uber_fee,
-            "known_billing": revenue + uber_fee,
-            "trips": trips,
-            "worked_km": worked_km,
-            "operating_expenses": operating_expenses,
-            "fuel_liters": fuel_liters,
-            "fuel_cost": fuel_cost,
-            "fuel_loaded_amount": float(loaded["amount"] or 0.0),
-            "fuel_loaded_liters": float(loaded["liters"] or 0.0),
-            "net": net,
-            "cash_expected": cash_expected,
-            "cash_reconciliation_known": cash_reconciliation_known,
-            "confidence": summary["confidence"] if summary is not None else "CONFIRMED",
-            "source_mode": summary["source_mode"] if summary is not None else "DETAILED",
-        }
 
     def save_close_session(self, dialog, widgets):
         try:
@@ -3667,6 +3693,7 @@ class DriverControlApp(MDApp):
                         metrics["cash_expected"], difference, session["id"],
                     ),
                 )
+                freeze_session_metrics(self.conn, session["id"], metrics)
             dialog.dismiss()
             self.refresh_all()
             sign = "+" if difference >= 0 else "-"
@@ -3709,6 +3736,10 @@ class DriverControlApp(MDApp):
         return max(low, min(high, value))
 
     def _assistant_result(self, fare, pickup_min, pickup_km, trip_min, trip_km, destination):
+        if (not all(math.isfinite(v) and v >= 0 for v in
+                    (fare, pickup_min, pickup_km, trip_min, trip_km))
+                or trip_min <= 0 or trip_km <= 0):
+            raise ValidationError("Datos incompletos o inválidos del viaje.")
         total_min = pickup_min + trip_min
         total_km = pickup_km + trip_km
         if total_min <= 0:
@@ -3727,38 +3758,27 @@ class DriverControlApp(MDApp):
         fuel_liters = total_km * consumption / 100.0
         fuel_cost = fuel_liters * fuel_price
         net_est = fare - fuel_cost
-        hourly_est = net_est * 60.0 / total_min
-        per_km_est = net_est / total_km
+        maintenance_cost = total_km * self._setting_float("maintenance_per_km", 0.0)
+        operating_profit = net_est - maintenance_cost
+        hourly_est = operating_profit * 60.0 / total_min
+        per_km_est = operating_profit / total_km
 
-        hourly_score = self._clamp(hourly_est / min_hourly, 0.0, 1.25) / 1.25 * 30.0
-        km_score = self._clamp(per_km_est / min_per_km, 0.0, 1.25) / 1.25 * 25.0
-        if pickup_km <= max_pickup:
-            pickup_score = 15.0
+        # Same thresholds and score as the native overlay; destination is context only.
+        score = 50.0
+        score += self._clamp((hourly_est / min_hourly - 1) * 35, -25, 25)
+        score += self._clamp((per_km_est / min_per_km - 1) * 30, -20, 20)
+        score += 10 if pickup_km <= max_pickup else -min(20, (pickup_km - max_pickup) * 5)
+        score = self._clamp(score, 0, 100)
+        fuel_ratio = fuel_cost / fare
+        hourly_ok, km_ok = hourly_est >= min_hourly, per_km_est >= min_per_km
+        risk = getattr(self, "_assistant_fatigue_risk", 0)
+        paused = getattr(self, "_assistant_paused", False)
+        if paused or risk >= 2 or operating_profit <= 0 or (not hourly_ok and not km_ok):
+            recommendation, color = "NO CONVIENE", (0.86, 0.16, 0.18, 1)
+        elif not hourly_ok or not km_ok or pickup_km > max_pickup or risk == 1 or score < 75:
+            recommendation, color = "DUDOSO", (0.92, 0.55, 0.05, 1)
         else:
-            over_ratio = (pickup_km - max_pickup) / max(max_pickup, 0.1)
-            pickup_score = 15.0 * self._clamp(1.0 - over_ratio, 0.0, 1.0)
-        destination_score = {"Mala": 4.0, "Normal": 10.0, "Buena": 15.0}.get(destination, 10.0)
-        fuel_ratio = fuel_cost / fare if fare else 1.0
-        fuel_score = 15.0 * self._clamp(1.0 - fuel_ratio, 0.0, 1.0)
-        score = self._clamp(hourly_score + km_score + pickup_score + destination_score + fuel_score, 0.0, 100.0)
-
-        # Regla dura configurable: si el viaje queda por debajo del mínimo por km,
-        # se rechaza la recomendación aunque el puntaje general sea alto.
-        if per_km_est < min_per_km:
-            recommendation = "NO CONVIENE"
-            color = (0.86, 0.16, 0.18, 1)
-        elif score >= 80:
-            recommendation = "EXCELENTE"
-            color = (0.05, 0.60, 0.26, 1)
-        elif score >= 65:
-            recommendation = "CONVIENE"
-            color = (0.05, 0.60, 0.26, 1)
-        elif score >= 45:
-            recommendation = "DUDOSO"
-            color = (0.92, 0.55, 0.05, 1)
-        else:
-            recommendation = "NO CONVIENE"
-            color = (0.86, 0.16, 0.18, 1)
+            recommendation, color = "CONVIENE", (0.05, 0.60, 0.26, 1)
 
         reasons = []
         if hourly_est >= min_hourly:
@@ -3791,6 +3811,8 @@ class DriverControlApp(MDApp):
             "fuel_liters": fuel_liters,
             "fuel_cost": fuel_cost,
             "net_est": net_est,
+            "maintenance_cost": maintenance_cost,
+            "operating_profit": operating_profit,
             "hourly_est": hourly_est,
             "per_km_est": per_km_est,
             "score": score,
@@ -3810,6 +3832,7 @@ class DriverControlApp(MDApp):
             activity = PythonActivity.mActivity
             prefs = activity.getSharedPreferences("driver_control_overlay", 0)
             editor = prefs.edit()
+            editor.putFloat("maintenance_per_km", float(self._setting_float("maintenance_per_km", 0.0)))
             editor.putFloat("fuel_consumption", float(self._setting_float("fuel_consumption", DEFAULT_FUEL_CONSUMPTION)))
             editor.putFloat("fuel_price", float(self._setting_float("fuel_price", DEFAULT_FUEL_PRICE)))
             editor.putFloat("min_hourly", float(self._setting_float("assistant_min_hourly", DEFAULT_ASSISTANT_MIN_HOURLY)))
@@ -3823,6 +3846,8 @@ class DriverControlApp(MDApp):
 
     def _sync_android_wellness_state(self, risk: int, paused: bool):
         """Comparte solo el estado mínimo para ajustar el veredicto flotante."""
+        self._assistant_fatigue_risk = risk
+        self._assistant_paused = paused
         if platform != "android":
             return
         try:
@@ -3927,6 +3952,30 @@ class DriverControlApp(MDApp):
         except Exception:
             LOGGER.exception("Could not stop DriverOverlayService")
 
+    def _open_android_app_details(self) -> bool:
+        """Abre la ficha de la app para permitir ajustes restringidos en APK externos."""
+        if platform != "android":
+            return False
+        try:
+            from jnius import autoclass
+            Intent = autoclass("android.content.Intent")
+            Settings = autoclass("android.provider.Settings")
+            Uri = autoclass("android.net.Uri")
+            PythonActivity = autoclass("org.kivy.android.PythonActivity")
+            current = PythonActivity.mActivity
+            intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+            intent.setData(Uri.parse("package:" + current.getPackageName()))
+            current.startActivity(intent)
+            return True
+        except Exception:
+            LOGGER.exception("Could not open Android application details")
+            self.show_message(
+                "No se pudo abrir",
+                "Abrí Ajustes > Aplicaciones > Driver Control > menú ⋮ > "
+                "Permitir ajustes restringidos.",
+            )
+            return False
+
     def request_uber_accessibility(self):
         """Abre la autorización de Accesibilidad con botones visibles y comportamiento estable."""
         if platform != "android":
@@ -3935,15 +3984,18 @@ class DriverControlApp(MDApp):
 
         disclosure = (
             "Accesibilidad se usa solo para leer tarifa, minutos y kilómetros visibles en Uber. "
-            "No pulsa botones ni acepta viajes. La lectura está limitada para cuidar el rendimiento. "
-            "El visor usa una única captura local cuando Uber no expone texto. "
-            "Mantené pulsada la burbuja $ para ver el último diagnóstico del lector."
+            "No pulsa botones ni acepta viajes. El visor procesa la captura localmente.\n\n"
+            "Si instalaste el APK desde Descargas y Android muestra ‘No funciona’, tocá PREPARAR APK. "
+            "En Info de la app, abrí el menú ⋮ y elegí ‘Permitir ajustes restringidos’. "
+            "Después volvé a Driver Control y tocá LECTURA DE UBER otra vez.\n\n"
+            "Si ya lo permitiste o instalaste desde Google Play, tocá YA PREPARÉ."
         )
         dialog = None
 
-        def cancel(_button):
+        def open_app_info(_button):
             if dialog is not None:
                 dialog.dismiss()
+            self._open_android_app_details()
 
         def continue_to_settings(_button):
             if dialog is not None:
@@ -3965,11 +4017,11 @@ class DriverControlApp(MDApp):
         # Los botones se crean junto con el MDDialog. En algunos Samsung/KivyMD,
         # asignar dialog.buttons después de construirlo deja el área de acciones vacía.
         dialog = MDDialog(
-            title="Lectura rápida",
+            title="Preparar lectura de Uber",
             text=disclosure,
             buttons=[
-                MDFlatButton(text="CANCELAR", on_release=cancel),
-                MDFlatButton(text="CONTINUAR", on_release=continue_to_settings),
+                MDFlatButton(text="PREPARAR APK", on_release=open_app_info),
+                MDFlatButton(text="YA PREPARÉ", on_release=continue_to_settings),
             ],
         )
         dialog.open()
@@ -4066,12 +4118,13 @@ class DriverControlApp(MDApp):
             else:
                 screen.recommendation_surface_color = [0.40, 0.08, 0.10, 1]
             screen.summary_text = (
-                f"Deja {self.money(result['net_est'])} · {self.money(result['per_km_est'])}/km"
+                f"Tras costos {self.money(result['operating_profit'])} · {self.money(result['per_km_est'])}/km"
             )
             screen.metrics_text = (
                 f"$/hora: {self.money(result['hourly_est'])}/h\n"
                 f"$/km: {self.money(result['per_km_est'])}/km\n"
-                f"Nafta: {result['fuel_liters']:.2f} L · {self.money(result['fuel_cost'])}"
+                f"Nafta: {result['fuel_liters']:.2f} L · {self.money(result['fuel_cost'])}\n"
+                f"Reserva desgaste: {self.money(result['maintenance_cost'])}"
             )
             screen.reason_text = self._decisive_trip_reason(result)
             self._show_assistant_result_dialog(result)
@@ -4082,6 +4135,10 @@ class DriverControlApp(MDApp):
             self.show_message("Error", "No se pudo analizar el viaje.")
 
     def _decisive_trip_reason(self, result) -> str:
+        if getattr(self, "_assistant_paused", False):
+            return "pausa activa"
+        if getattr(self, "_assistant_fatigue_risk", 0) >= 1:
+            return "fatiga informada; revisá tu descanso"
         min_hourly = self._setting_float("assistant_min_hourly", DEFAULT_ASSISTANT_MIN_HOURLY)
         min_per_km = self._setting_float("assistant_min_per_km", DEFAULT_ASSISTANT_MIN_PER_KM)
         max_pickup = self._setting_float("assistant_max_pickup_km", DEFAULT_ASSISTANT_MAX_PICKUP_KM)
@@ -4290,7 +4347,9 @@ class DriverControlApp(MDApp):
                 f"Tiempo total: {result['total_min']:.0f} min",
                 f"Distancia total: {result['total_km']:.1f} km",
                 f"Costo nafta: {self.money(result['fuel_cost'])}",
-                f"Ganancia neta est.: {self.money(result['net_est'])}",
+                f"Tras nafta: {self.money(result['net_est'])}",
+                f"Reserva desgaste: {self.money(result['maintenance_cost'])}",
+                f"Tras nafta y reserva: {self.money(result['operating_profit'])}",
                 f"$/hora: {self.money(result['hourly_est'])}/h",
                 f"$/km: {self.money(result['per_km_est'])}/km",
                 "",
@@ -4345,7 +4404,8 @@ class DriverControlApp(MDApp):
         total = self._sum_for_date("trips", "amount", today)
         expenses_row = self.conn.execute(
             "SELECT COALESCE(SUM(amount),0) AS v FROM expenses "
-            "WHERE substr(created_at,1,10)=? AND lower(category)!='combustible'",
+            "WHERE substr(created_at,1,10)=? "
+            "AND is_fuel_purchase(category,description)=0",
             (today,),
         ).fetchone()
         expenses = float(expenses_row["v"] or 0.0)
@@ -4467,141 +4527,55 @@ class DriverControlApp(MDApp):
         )
 
     def _range_metrics(self, date_texts):
-        """Calcula una sola verdad financiera para Inicio, Jornada y Excel."""
+        """Account for each whole session on its opening day, using saved closes."""
+        totals = dict.fromkeys(("income", "uber_fee", "expenses", "fuel_purchases",
+                               "km", "fuel_liters", "fuel_cost", "profit", "trips",
+                               "worked_minutes", "known_billing",
+                               "recorded_payment_balance"), 0.0)
         dates = list(dict.fromkeys(date_texts))
         if not dates:
-            return {
-                "income": 0.0, "uber_fee": 0.0, "expenses": 0.0,
-                "km": 0.0, "fuel_liters": 0.0, "fuel_cost": 0.0,
-                "profit": 0.0, "trips": 0, "worked_minutes": 0.0,
-                "known_billing": 0.0,
-            }
+            return totals
         placeholders = ",".join("?" for _ in dates)
-        trip = self.conn.execute(
-            f"""
-            SELECT COALESCE(SUM(amount),0) income,
-                   COALESCE(SUM(uber_fee),0) uber_fee,
-                   COALESCE(SUM(km),0) trip_km,
-                   COUNT(*) trips
-            FROM trips
-            WHERE substr(created_at,1,10) IN ({placeholders})
-              AND (
-                    session_id IS NULL
-                    OR NOT EXISTS(
-                        SELECT 1 FROM session_summaries summary
-                        WHERE summary.session_id=trips.session_id
-                    )
-                  )
-            """,
-            dates,
-        ).fetchone()
-        summaries = self.conn.execute(
-            f"""
-            SELECT COALESCE(SUM(summary.income_total),0) income,
-                   COALESCE(SUM(summary.uber_fee),0) uber_fee,
-                   COALESCE(SUM(summary.trip_count),0) trips
-            FROM session_summaries summary
-            JOIN work_sessions session ON session.id=summary.session_id
-            WHERE substr(session.opened_at,1,10) IN ({placeholders})
-            """,
-            dates,
-        ).fetchone()
-        expense = self.conn.execute(
-            f"""
-            SELECT COALESCE(SUM(amount),0) expenses
-            FROM expenses
-            WHERE substr(created_at,1,10) IN ({placeholders})
-              AND lower(category)!='combustible'
-            """,
-            dates,
-        ).fetchone()
         sessions = self.conn.execute(
-            f"""
-            SELECT * FROM work_sessions
-            WHERE substr(opened_at,1,10) IN ({placeholders})
-            ORDER BY id
-            """,
+            f"SELECT id FROM work_sessions WHERE substr(opened_at,1,10) IN ({placeholders})",
             dates,
         ).fetchall()
-
-        worked_km = 0.0
-        worked_seconds = 0.0
-        now = datetime.now()
-        for session in sessions:
-            session_id = int(session["id"])
-            if session["closing_odometer"] is not None:
-                worked_km += max(
-                    float(session["closing_odometer"])
-                    - float(session["opening_odometer"] or 0.0),
-                    0.0,
-                )
-            elif session["status"] == "OPEN":
-                current_odometer = session["current_odometer"]
-                if current_odometer is not None:
-                    worked_km += max(
-                        float(current_odometer) - float(session["opening_odometer"] or 0.0),
-                        0.0,
-                    )
-                else:
-                    session_trip_km = self.conn.execute(
-                        "SELECT COALESCE(SUM(km),0) v FROM trips WHERE session_id=?",
-                        (session_id,),
-                    ).fetchone()["v"]
-                    worked_km += float(session_trip_km or 0.0)
-            try:
-                opened = datetime.strptime(session["opened_at"], DATETIME_FORMAT)
-                closed = (
-                    datetime.strptime(session["closed_at"], DATETIME_FORMAT)
-                    if session["closed_at"] else now
-                )
-                elapsed = max(0.0, (closed - opened).total_seconds())
-                breaks = self.conn.execute(
-                    "SELECT started_at,ended_at FROM driver_breaks WHERE session_id=?",
-                    (session_id,),
-                ).fetchall()
-                break_seconds = 0.0
-                for pause in breaks:
-                    started = datetime.strptime(pause["started_at"], DATETIME_FORMAT)
-                    ended = (
-                        datetime.strptime(pause["ended_at"], DATETIME_FORMAT)
-                        if pause["ended_at"] else now
-                    )
-                    break_seconds += max(0.0, (ended - started).total_seconds())
-                worked_seconds += max(0.0, elapsed - break_seconds)
-            except (TypeError, ValueError):
-                LOGGER.warning("Could not calculate duration for session %s", session_id)
-
-        # Viajes antiguos sin jornada conservan sus kilómetros cargados.
-        orphan_km = self.conn.execute(
-            f"""
-            SELECT COALESCE(SUM(km),0) v FROM trips
-            WHERE session_id IS NULL
-              AND substr(created_at,1,10) IN ({placeholders})
-            """,
+        fields = {"income": "revenue", "uber_fee": "uber_fee",
+                  "expenses": "operating_expenses", "fuel_purchases": "fuel_purchase_amount",
+                  "km": "worked_km", "fuel_liters": "fuel_liters", "fuel_cost": "fuel_cost",
+                  "profit": "net", "trips": "trips", "known_billing": "known_billing",
+                  "recorded_payment_balance": "recorded_payment_balance"}
+        for row in sessions:
+            metrics = self._session_metrics(row["id"])
+            for key, source in fields.items():
+                totals[key] += metrics[source]
+            totals["worked_minutes"] += self._session_worked_minutes(row["id"])
+        # Legacy records without a session remain attributed to their own date.
+        orphan = self.conn.execute(
+            f"SELECT COALESCE(SUM(amount),0) income, COALESCE(SUM(uber_fee),0) fee, "
+            f"COALESCE(SUM(km),0) km, COALESCE(SUM(duration),0) minutes, COUNT(*) trips "
+            f"FROM trips WHERE session_id IS NULL AND substr(created_at,1,10) IN ({placeholders})",
             dates,
-        ).fetchone()["v"]
-        worked_km += float(orphan_km or 0.0)
-
-        income = float(trip["income"] or 0.0) + float(summaries["income"] or 0.0)
-        uber_fee = float(trip["uber_fee"] or 0.0) + float(summaries["uber_fee"] or 0.0)
-        trips = int(trip["trips"] or 0) + int(summaries["trips"] or 0)
-        expenses = float(expense["expenses"] or 0.0)
-        consumption = self._setting_float("fuel_consumption", DEFAULT_FUEL_CONSUMPTION)
-        fuel_price = self._setting_float("fuel_price", DEFAULT_FUEL_PRICE)
-        fuel_liters = worked_km * consumption / 100.0
-        fuel_cost = fuel_liters * fuel_price
-        return {
-            "income": income,
-            "uber_fee": uber_fee,
-            "known_billing": income + uber_fee,
-            "expenses": expenses,
-            "km": worked_km,
-            "fuel_liters": fuel_liters,
-            "fuel_cost": fuel_cost,
-            "profit": income - expenses - fuel_cost,
-            "trips": trips,
-            "worked_minutes": worked_seconds / 60.0,
-        }
+        ).fetchone()
+        expenses = self.conn.execute(
+            f"SELECT COALESCE(SUM(CASE WHEN is_fuel_purchase(category,description)=0 THEN amount ELSE 0 END),0) operating, "
+            f"COALESCE(SUM(CASE WHEN is_fuel_purchase(category,description)=1 THEN amount ELSE 0 END),0) fuel "
+            f"FROM expenses WHERE session_id IS NULL AND substr(created_at,1,10) IN ({placeholders})",
+            dates,
+        ).fetchone()
+        liters = orphan["km"] * self._setting_float("fuel_consumption", DEFAULT_FUEL_CONSUMPTION) / 100.0
+        fuel_cost = liters * self._setting_float("fuel_price", DEFAULT_FUEL_PRICE)
+        additions = {"income": orphan["income"], "uber_fee": orphan["fee"],
+                     "known_billing": orphan["income"] + orphan["fee"], "km": orphan["km"],
+                     "trips": orphan["trips"], "worked_minutes": orphan["minutes"],
+                     "expenses": expenses["operating"], "fuel_purchases": expenses["fuel"],
+                     "fuel_liters": liters, "fuel_cost": fuel_cost,
+                     "profit": orphan["income"] - expenses["operating"] - fuel_cost,
+                     "recorded_payment_balance": orphan["income"] - expenses["operating"] - expenses["fuel"]}
+        for key, value in additions.items():
+            totals[key] += value
+        totals["trips"] = int(totals["trips"])
+        return totals
 
     def set_dashboard_period(self, mode: str):
         if mode not in ("today", "week"):
@@ -4677,6 +4651,13 @@ class DriverControlApp(MDApp):
             details.append(str(row["next_due_date"]))
         return f"{row['category']}: " + " · ".join(details)
 
+    def _session_goal_progress(self, session_id):
+        metrics = self._session_metrics(session_id)
+        goal = self._setting_float("daily_goal", DEFAULT_DAILY_GOAL)
+        income = metrics["revenue"]
+        return {"income": income, "goal": goal, "remaining": max(0.0, goal - income),
+                "percent": self._percent(income, goal)}
+
     def refresh_all(self):
         now = datetime.now()
         today = now.strftime(DATE_FORMAT)
@@ -4713,6 +4694,12 @@ class DriverControlApp(MDApp):
             f"{self.money(metrics['income'])} ingresos − {self.money(metrics['fuel_cost'])} nafta "
             f"− {self.money(metrics['expenses'])} gastos"
         )
+        dashboard.fuel_purchase_text = (
+            f"Cargas pagadas: {self.money(metrics['fuel_purchases'])} · "
+            "no reducen de nuevo la ganancia\n"
+            "Ingresos − pagos registrados: "
+            f"{self.money(metrics['recorded_payment_balance'])}"
+        )
         odometer_pending = bool(
             session is not None
             and metrics["trips"] > 0
@@ -4721,15 +4708,13 @@ class DriverControlApp(MDApp):
         )
         if odometer_pending:
             dashboard.net_explanation_text += " · Actualizá el odómetro para incluir nafta"
-        hourly = (
-            metrics["profit"] * 60.0 / metrics["worked_minutes"]
-            if metrics["worked_minutes"] > 0 else 0.0
-        )
+        hourly = hourly_estimate(metrics["profit"], metrics["worked_minutes"])
+        hourly_label = f"{self.money(hourly)}/h" if hourly is not None else "$/h desde 10 min"
         per_km = metrics["profit"] / metrics["km"] if metrics["km"] > 0 else 0.0
         dashboard.efficiency_text = (
-            f"{self.money(hourly)}/h · km pendientes del odómetro"
+            f"{hourly_label} · km pendientes del odómetro"
             if odometer_pending else
-            f"{self.money(hourly)}/h · {self.money(per_km)}/km"
+            f"{hourly_label} · {self.money(per_km)}/km"
         )
         dashboard.km_text = f"{metrics['km']:.1f} km"
         dashboard.trips_text = str(metrics["trips"])
@@ -4767,8 +4752,11 @@ class DriverControlApp(MDApp):
         if session is not None:
             dashboard.session_active = True
             dashboard.session_status_text = "Jornada en curso"
+            progress = self._session_goal_progress(int(session["id"]))
             dashboard.session_helper_text = (
-                "Concentrate en manejar. Podés cargar los totales y entender tu ganancia al finalizar."
+                f"Meta de jornada: {self.money(progress['income'])} / {self.money(progress['goal'])}"
+                f" · faltan {self.money(progress['remaining'])}\n"
+                "Ingresos registrados del conductor; las ofertas leídas no se suman."
             )
             dashboard.session_action_text = "FINALIZAR Y VER MI GANANCIA"
         else:
@@ -4784,6 +4772,7 @@ class DriverControlApp(MDApp):
             (
                 metrics["income"] > 0,
                 metrics["expenses"] > 0,
+                metrics["fuel_purchases"] > 0,
                 metrics["km"] > 0,
                 metrics["trips"] > 0,
             )
@@ -4860,6 +4849,7 @@ class DriverControlApp(MDApp):
         settings.ids.fuel_price.text = self._compact_number(
             self._setting_float("fuel_price", DEFAULT_FUEL_PRICE)
         )
+        settings.ids.maintenance_per_km.text = self._compact_number(self._setting_float("maintenance_per_km", 0.0))
         settings.ids.tank_capacity.text = self._compact_number(
             self._setting_float("tank_capacity", DEFAULT_TANK_CAPACITY)
         )
@@ -5052,8 +5042,11 @@ class DriverControlApp(MDApp):
                 f"Nafta cargada: {metrics['fuel_loaded_liters']:.2f} L · {self.money(metrics['fuel_loaded_amount'])}",
                 f"Otros gastos: {self.money(metrics['operating_expenses'])}",
                 f"Ganancia real estimada: {self.money(metrics['net'])}",
-                f"Caja esperada: {self.money(metrics['cash_expected'])}",
+                (f"Caja esperada: {self.money(metrics['cash_expected'])}"
+                 if metrics["cash_reconciliation_known"] else "Caja esperada: sin confirmar"),
             ]
+            if metrics.get("snapshot_basis") == "LEGACY_RECONSTRUCTED":
+                lines.append("Combustible histórico: estimación fijada al actualizar; la versión anterior no guardaba el precio del cierre.")
             if closing_cash is not None:
                 lines.append(f"Caja contada: {self.money(float(closing_cash))}")
             if cash_difference is not None:
@@ -5272,6 +5265,13 @@ class DriverControlApp(MDApp):
         )
         dialog.open()
 
+    def _require_editable_session(self, session_id):
+        if session_id is None:
+            return
+        row = self.conn.execute("SELECT status FROM work_sessions WHERE id=?", (session_id,)).fetchone()
+        if row is not None and row["status"] != "OPEN":
+            raise ValidationError("La jornada está cerrada. Sus movimientos se conservan para mantener el cierre.")
+
     def delete_fuel(self, fuel_id: int, dialog):
         try:
             row = self.conn.execute(
@@ -5279,6 +5279,7 @@ class DriverControlApp(MDApp):
             ).fetchone()
             if row is None:
                 raise ValidationError("La carga ya no existe.")
+            self._require_editable_session(row["session_id"])
             with self.transaction():
                 # La 4.2 guardaba la carga también como gasto. Eliminamos el par.
                 self.conn.execute(
@@ -5286,7 +5287,7 @@ class DriverControlApp(MDApp):
                     DELETE FROM expenses
                     WHERE id=(
                         SELECT id FROM expenses
-                        WHERE session_id=? AND created_at=?
+                        WHERE session_id IS ? AND created_at=?
                           AND lower(category)='combustible' AND amount=?
                         ORDER BY id DESC LIMIT 1
                     )
@@ -5318,13 +5319,14 @@ class DriverControlApp(MDApp):
     def input_dialog(self, title, fields, callback):
         box = MDBoxLayout(
             orientation="vertical",
-            spacing=dp(8),
+            spacing=dp(12),
+            padding=[0, dp(24), 0, dp(12)],
             adaptive_height=True,
         )
         widgets = {}
 
         for key, hint, numeric in fields:
-            field = MDTextField(hint_text=hint)
+            field = MDTextField(hint_text=hint, size_hint_y=None, height=dp(64))
             if key == "payment":
                 field.text = PAYMENT_CASH
             elif key == "odometer":
@@ -5561,6 +5563,10 @@ class DriverControlApp(MDApp):
 
     def delete_trip(self, trip_id: int, dialog):
         try:
+            row = self.conn.execute("SELECT session_id FROM trips WHERE id=?", (trip_id,)).fetchone()
+            if row is None:
+                raise ValidationError("El viaje ya no existe.")
+            self._require_editable_session(row["session_id"])
             with self.transaction():
                 self.conn.execute(
                     "DELETE FROM trips WHERE id=?",
@@ -5569,6 +5575,8 @@ class DriverControlApp(MDApp):
             dialog.dismiss()
             self.refresh_all()
             LOGGER.info("Trip deleted: id=%s", trip_id)
+        except ValidationError as exc:
+            self.show_message("No se pudo eliminar", str(exc))
         except Exception:
             LOGGER.exception("Unexpected error while deleting trip id=%s", trip_id)
             self.show_message(
@@ -5598,6 +5606,8 @@ class DriverControlApp(MDApp):
             )
             category = (widgets["category"].text or "Otro").strip()
             description = (widgets["description"].text or "").strip()
+            if is_fuel_purchase(category, description):
+                category = "Combustible"
             payment = self._normalize_payment(widgets["payment"].text)
             now = datetime.now().strftime(DATETIME_FORMAT)
 
@@ -5630,10 +5640,10 @@ class DriverControlApp(MDApp):
             self.show_message("Abrí una jornada", "Primero abrí la jornada para registrar combustible.")
             return
         fields = [
-            ("amount", "Importe", True),
-            ("liters", "Litros", True),
+            ("amount", "Importe pagado ($)", True),
+            ("liters", "Litros cargados", True),
             ("odometer", "Odómetro", True),
-            ("payment", "Pago: Efectivo / Mercado Pago / Otro", False),
+            ("payment", "Pago: Efectivo / MP / Otro", False),
         ]
         self.input_dialog("Combustible", fields, self.save_fuel)
 
@@ -5691,6 +5701,14 @@ class DriverControlApp(MDApp):
                 amount,
                 liters,
                 odometer,
+            )
+            self.show_message(
+                "Carga guardada",
+                f"Pagaste {self.money(amount)} por {liters:.2f} L con {payment}.\n"
+                f"Precio de esta carga: {self.money(amount / liters)}/L.\n"
+                "Para estimar el consumo se usa el precio de Ajustes: "
+                f"{self.money(self._setting_float('fuel_price', DEFAULT_FUEL_PRICE))}/L.\n"
+                "Podés actualizarlo en Ajustes si corresponde.",
             )
 
         except ValidationError as exc:
@@ -5832,6 +5850,9 @@ class DriverControlApp(MDApp):
             fuel_price = self._parse_non_negative_float(
                 screen.ids.fuel_price.text, "Precio de nafta", allow_zero=False
             )
+            maintenance_per_km = self._parse_non_negative_float(
+                screen.ids.maintenance_per_km.text, "Reserva por km"
+            )
             tank_capacity = self._parse_non_negative_float(
                 screen.ids.tank_capacity.text, "Capacidad del tanque", allow_zero=False
             )
@@ -5850,6 +5871,7 @@ class DriverControlApp(MDApp):
                 raise ValidationError("La dirección del servidor de IA debe comenzar con https://")
 
             with self.transaction():
+                self.conn.execute("INSERT OR REPLACE INTO settings(key,value) VALUES('maintenance_per_km',?)", (str(maintenance_per_km),))
                 self.conn.execute(
                     "INSERT OR REPLACE INTO settings(key,value) VALUES('daily_goal',?)",
                     (str(daily_goal),),

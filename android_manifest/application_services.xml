@@ -13,7 +13,12 @@
 
 <service
     android:name="org.drivercontrol.drivercontrol.DriverOverlayService"
-    android:exported="false" />
+    android:exported="false"
+    android:foregroundServiceType="specialUse">
+    <property
+        android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+        android:value="User-started floating trip calculator and change calculator shown while another driving app is visible; no automatic interaction." />
+</service>
 
 <provider
     android:name="androidx.core.content.FileProvider"

@@ -93,7 +93,9 @@ public class UberOfferAccessibilityService extends AccessibilityService {
                 setServiceInfo(info);
             }
 
-            startOverlayIfAllowed();
+            // Do not launch a foreground overlay while Android Settings is enabling
+            // accessibility. Android 14/15 may reject background FGS launches.
+            // The user can start the floating assistant explicitly from the app.
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 DriverCopilotCoordinator active = ensureCoordinator();
                 if (active != null) {
@@ -487,8 +489,10 @@ public class UberOfferAccessibilityService extends AccessibilityService {
 
         // El estado se conserva aunque el usuario no haya permitido la burbuja.
         // Así el lector no depende del servicio flotante para mantenerse vivo.
-        if (!Settings.canDrawOverlays(this)) return;
-
+        // Do not start a foreground service from an accessibility callback.
+        // Status is retained in SharedPreferences and shown when the user opens the app.
+        return;
+        /*
         try {
             Intent intent = new Intent(this, DriverOverlayService.class)
                     .setAction(DriverOverlayService.ACTION_READER_STATUS)
@@ -496,6 +500,7 @@ public class UberOfferAccessibilityService extends AccessibilityService {
             startOverlayService(intent);
         } catch (Throwable ignored) {
         }
+        */
     }
 
     private void persistServiceState(String state, String error) {
